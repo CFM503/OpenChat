@@ -4,6 +4,24 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [1.0.2] - 2026-06-24
+
+### Added
+- **File Upload & Attachment Support**:
+  - Added file upload triggers (paperclip button) and asynchronous `FileReader` processing to stage image thumbnails and file badges in the Chat Console.
+  - Added expandable `TextAttachmentCard` code previewers inside message bubbles to read code files inline.
+  - Added model adapters mapping attachments to OpenAI multimodal content blocks, Ollama vision arrays, and markdown text prompt injections.
+  - Added JSDOM integration tests in `ChatPanel.test.tsx` verifying file staging, base64 compilation, removal, and send cycles.
+- **Startup Port Verification**:
+  - Added a pre-startup checking helper in `vite.config.ts` to detect if port 3000 is occupied and output warning banners in the terminal.
+- **Config Persistence**:
+  - Implemented `localStorage` hooks in `App.tsx` to sync and restore all custom model settings, API credentials, and active selections across page refreshes.
+
+### Changed
+- Expanded the Vitest suite to 37 specs (all passing).
+
+---
+
 ## [1.0.1] - 2026-06-24
 
 ### Added
