@@ -151,6 +151,67 @@ export class ModelRouter {
     }
   }
 
+  private mapMessagesForOpenAI(messages: ChatMessage[]) {
+    return messages.map(m => {
+      const images = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
+      const texts = m.attachments?.filter(a => !a.type.startsWith('image/')) || [];
+
+      let textContent = m.content;
+      if (texts.length > 0) {
+        textContent += texts
+          .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
+          .join('');
+      }
+
+      if (images.length > 0) {
+        const contentBlocks: any[] = [{ type: 'text', text: textContent }];
+        for (const img of images) {
+          contentBlocks.push({
+            type: 'image_url',
+            image_url: { url: img.content }
+          });
+        }
+        return {
+          role: m.role,
+          content: contentBlocks
+        };
+      } else {
+        return {
+          role: m.role,
+          content: textContent
+        };
+      }
+    });
+  }
+
+  private mapMessagesForOllama(messages: ChatMessage[]) {
+    return messages.map(m => {
+      const images = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
+      const texts = m.attachments?.filter(a => !a.type.startsWith('image/')) || [];
+
+      let textContent = m.content;
+      if (texts.length > 0) {
+        textContent += texts
+          .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
+          .join('');
+      }
+
+      const messageObj: any = {
+        role: m.role,
+        content: textContent,
+      };
+
+      if (images.length > 0) {
+        messageObj.images = images.map(img => {
+          const parts = img.content.split(';base64,');
+          return parts.length > 1 ? parts[1] : img.content;
+        });
+      }
+
+      return messageObj;
+    });
+  }
+
   private buildOpenAIRequest(
     config: ModelConfig,
     messages: ChatMessage[],
@@ -170,10 +231,7 @@ export class ModelRouter {
         headers,
         body: JSON.stringify({
           model: config.model,
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
+          messages: this.mapMessagesForOpenAI(messages),
           max_tokens: config.maxTokens,
           temperature: config.temperature,
           stream,
@@ -196,10 +254,7 @@ export class ModelRouter {
         },
         body: JSON.stringify({
           model: config.model,
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
+          messages: this.mapMessagesForOllama(messages),
           stream,
           options: {
             num_predict: config.maxTokens,
@@ -230,10 +285,7 @@ export class ModelRouter {
         headers,
         body: JSON.stringify({
           model: config.model,
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
+          messages: this.mapMessagesForOpenAI(messages),
           max_tokens: config.maxTokens,
           temperature: config.temperature,
           stream,

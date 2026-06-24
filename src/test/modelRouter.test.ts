@@ -201,3 +201,125 @@ describe('normalizeEndpoint', () => {
     );
   });
 });
+
+describe('ModelRouter Attachments Serialization', () => {
+  it('should serialize text attachments into prompt content for OpenAI', () => {
+    const router = new ModelRouter([]);
+    router.addModel({
+      id: 'openai-test',
+      name: 'OpenAI Test',
+      provider: 'openai',
+      endpoint: 'https://api.openai.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-4o',
+      maxTokens: 1000,
+      temperature: 0.7,
+      isDefault: true,
+    });
+
+    const messages: ChatMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Hello, check these files.',
+        timestamp: Date.now(),
+        attachments: [
+          {
+            name: 'main.py',
+            type: 'text/x-python',
+            size: 50,
+            content: 'print("hello world")'
+          }
+        ]
+      }
+    ];
+
+    const req = router.buildRequest('openai-test', messages, true);
+    expect(req).not.toBeNull();
+    const body = JSON.parse((req!.init.body as string));
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[0].content).toContain('Attachment: main.py');
+    expect(body.messages[0].content).toContain('print("hello world")');
+  });
+
+  it('should serialize image attachments into content blocks for OpenAI', () => {
+    const router = new ModelRouter([]);
+    router.addModel({
+      id: 'openai-test',
+      name: 'OpenAI Test',
+      provider: 'openai',
+      endpoint: 'https://api.openai.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-4o',
+      maxTokens: 1000,
+      temperature: 0.7,
+      isDefault: true,
+    });
+
+    const messages: ChatMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Check this image.',
+        timestamp: Date.now(),
+        attachments: [
+          {
+            name: 'photo.png',
+            type: 'image/png',
+            size: 1000,
+            content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+          }
+        ]
+      }
+    ];
+
+    const req = router.buildRequest('openai-test', messages, true);
+    expect(req).not.toBeNull();
+    const body = JSON.parse((req!.init.body as string));
+    expect(body.messages[0].role).toBe('user');
+    expect(Array.isArray(body.messages[0].content)).toBe(true);
+    expect(body.messages[0].content[0].type).toBe('text');
+    expect(body.messages[0].content[0].text).toContain('Check this image.');
+    expect(body.messages[0].content[1].type).toBe('image_url');
+    expect(body.messages[0].content[1].image_url.url).toContain('data:image/png;base64,');
+  });
+
+  it('should serialize image attachments into top-level images array for Ollama', () => {
+    const router = new ModelRouter([]);
+    router.addModel({
+      id: 'ollama-test',
+      name: 'Ollama Test',
+      provider: 'ollama',
+      endpoint: 'http://localhost:11434/api/chat',
+      model: 'llava',
+      maxTokens: 1000,
+      temperature: 0.7,
+      isDefault: true,
+    });
+
+    const messages: ChatMessage[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Look at this.',
+        timestamp: Date.now(),
+        attachments: [
+          {
+            name: 'photo.png',
+            type: 'image/png',
+            size: 1000,
+            content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+          }
+        ]
+      }
+    ];
+
+    const req = router.buildRequest('ollama-test', messages, true);
+    expect(req).not.toBeNull();
+    const body = JSON.parse((req!.init.body as string));
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[0].content).toBe('Look at this.');
+    expect(Array.isArray(body.messages[0].images)).toBe(true);
+    expect(body.messages[0].images[0]).toBe('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+  });
+});

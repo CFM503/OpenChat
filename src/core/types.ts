@@ -33,6 +33,13 @@ export interface ModelRouteResponse {
 
 // --- Chat Types ---
 
+export interface ChatAttachment {
+  name: string;
+  type: string; // MIME type, e.g. image/png, text/plain
+  size: number; // File size in bytes
+  content: string; // base64 data URL for images/binaries, raw text for code/text files
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -41,6 +48,7 @@ export interface ChatMessage {
   timestamp: number;
   modelId?: string;
   isStreaming?: boolean;
+  attachments?: ChatAttachment[];
 }
 
 export interface ParsedStreamChunk {

@@ -4,7 +4,7 @@
 // ============================================================================
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, AgentTask, ModelConfig, WorkspaceFile, TaskAction } from './core/types';
+import type { ChatMessage, AgentTask, ModelConfig, WorkspaceFile, TaskAction, ChatAttachment } from './core/types';
 import { createParserState, feedChunk, finalize } from './core/streamParser';
 import { ModelRouter, DEFAULT_MODELS } from './core/modelRouter';
 import { TaskManager } from './core/taskStateMachine';
@@ -87,13 +87,15 @@ export function App() {
 
   // --- Chat handlers ---
   const handleSendMessage = useCallback(
-    (content: string) => {
-      if (isStreaming || content.trim().length === 0) return;
+    (content: string, attachments?: ChatAttachment[]) => {
+      if (isStreaming) return;
+      if (content.trim().length === 0 && (!attachments || attachments.length === 0)) return;
 
       const userMsg: ChatMessage = {
         id: uid('msg'),
         role: 'user',
         content: content.trim(),
+        attachments: attachments || [],
         timestamp: Date.now(),
         modelId: activeModelId,
       };

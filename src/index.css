@@ -533,7 +533,212 @@ body {
 
 .chat-input-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* --- Chat Attachments --- */
+
+.staged-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  margin-bottom: 8px;
+}
+
+.staged-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  position: relative;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  max-width: 220px;
+  box-shadow: var(--shadow-sm);
+}
+
+.staged-attachment-thumbnail {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.staged-attachment-icon {
+  color: var(--color-info);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.staged-attachment-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  line-height: 1.2;
+}
+
+.staged-attachment-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staged-attachment-size {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.staged-attachment-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-left: 4px;
+}
+
+.staged-attachment-remove:hover {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Upload attachment button in footer */
+.chat-input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-icon-attach {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-attach:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+  border-color: var(--text-secondary);
+}
+
+/* Sent message attachments */
+.message-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.message-attachment-image-wrapper {
+  max-width: 320px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-medium);
+  cursor: zoom-in;
+}
+
+.message-attachment-image-wrapper:hover {
+  transform: scale(1.02);
+}
+
+.message-attachment-image {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  display: block;
+}
+
+.message-attachment-file-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast);
+}
+
+.message-attachment-file-card:hover {
+  border-color: var(--color-info);
+}
+
+.message-attachment-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.message-attachment-file-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.message-attachment-file-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-attachment-file-size {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.message-attachment-file-toggle {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  transition: transform var(--transition-fast);
+}
+
+.message-attachment-file-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.message-attachment-file-preview {
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  background: rgba(10, 14, 26, 0.8);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  max-height: 250px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* --- Code Editor CSS --- */

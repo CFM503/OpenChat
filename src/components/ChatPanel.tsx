@@ -4,11 +4,11 @@
 // ============================================================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatMessage } from '../core/types';
+import type { ChatMessage, ChatAttachment } from '../core/types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, attachments: ChatAttachment[]) => void;
   isStreaming: boolean;
 }
 
@@ -115,8 +115,6 @@ function renderContent(content: string): React.ReactNode[] {
 }
 
 function renderLineContent(line: string): React.ReactNode {
-  // Regex to match inline code: `code`
-  // Regex to match bold: **bold**
   const regex = /(`[^`]+`|\*\*[^*]+\*\*)/g;
   const parts = line.split(regex);
 
@@ -131,14 +129,113 @@ function renderLineContent(line: string): React.ReactNode {
   });
 }
 
+// Helper to format file size
+const formatSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+};
+
+// Collapsible Text File Card
+function TextAttachmentCard({
+  attachment,
+}: {
+  attachment: ChatAttachment;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="message-attachment-file-card">
+      <div
+        className="message-attachment-file-header"
+        onClick={() => setIsExpanded(prev => !prev)}
+      >
+        <div className="message-attachment-file-header-left">
+          <span className="staged-attachment-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          </span>
+          <div className="message-attachment-file-name" title={attachment.name}>
+            {attachment.name}
+          </div>
+          <span className="message-attachment-file-size">
+            ({formatSize(attachment.size)})
+          </span>
+        </div>
+        <span className={`message-attachment-file-toggle ${isExpanded ? 'expanded' : ''}`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </span>
+      </div>
+      {isExpanded && (
+        <pre className="message-attachment-file-preview">
+          <code>{attachment.content}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelProps) {
   const [inputText, setInputText] = useState('');
+  const [stagedAttachments, setStagedAttachments] = useState<ChatAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+
+      reader.onload = (event) => {
+        const fileContent = event.target?.result as string;
+
+        const newAttachment: ChatAttachment = {
+          name: file.name,
+          type: file.type || 'text/plain',
+          size: file.size,
+          content: fileContent,
+        };
+
+        setStagedAttachments(prev => [...prev, newAttachment]);
+      };
+
+      if (isImage) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleTriggerUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleRemoveStaged = (index: number) => {
+    setStagedAttachments(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleSend = () => {
-    if (inputText.trim().length === 0 || isStreaming) return;
-    onSendMessage(inputText);
+    if (isStreaming) return;
+    if (inputText.trim().length === 0 && stagedAttachments.length === 0) return;
+
+    onSendMessage(inputText, stagedAttachments);
     setInputText('');
+    setStagedAttachments([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -176,6 +273,37 @@ export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelPro
                 {renderContent(msg.content)}
               </div>
             )}
+            {msg.attachments && msg.attachments.length > 0 && (
+              <div className="message-attachments">
+                {msg.attachments.map((attach, idx) => {
+                  const isImg = attach.type.startsWith('image/');
+                  if (isImg) {
+                    return (
+                      <div key={idx} className="message-attachment-image-wrapper">
+                        <img
+                          src={attach.content}
+                          alt={attach.name}
+                          className="message-attachment-image"
+                          onClick={() => {
+                            const w = window.open();
+                            w?.document.write(`
+                              <html>
+                                <head><title>${attach.name}</title></head>
+                                <body style="margin:0; background:#0a0e1a; display:flex; align-items:center; justify-content:center; min-height:100vh;">
+                                  <img src="${attach.content}" style="max-width:100%; max-height:100vh; object-fit:contain;" />
+                                </body>
+                              </html>
+                            `);
+                          }}
+                        />
+                      </div>
+                    );
+                  } else {
+                    return <TextAttachmentCard key={idx} attachment={attach} />;
+                  }
+                })}
+              </div>
+            )}
             <div className="message-info">
               <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
               <span>•</span>
@@ -188,6 +316,42 @@ export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelPro
 
       <div className="chat-input-area">
         <div className="chat-input-wrapper">
+          {stagedAttachments.length > 0 && (
+            <div className="staged-attachments-list">
+              {stagedAttachments.map((attach, idx) => {
+                const isImg = attach.type.startsWith('image/');
+                return (
+                  <div key={idx} className="staged-attachment-card">
+                    {isImg ? (
+                      <img src={attach.content} className="staged-attachment-thumbnail" alt="" />
+                    ) : (
+                      <span className="staged-attachment-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      </span>
+                    )}
+                    <div className="staged-attachment-info">
+                      <span className="staged-attachment-name" title={attach.name}>{attach.name}</span>
+                      <span className="staged-attachment-size">{formatSize(attach.size)}</span>
+                    </div>
+                    <button
+                      className="staged-attachment-remove"
+                      onClick={() => handleRemoveStaged(idx)}
+                      title="Remove file"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <textarea
             className="chat-textarea"
             placeholder="Ask anything... (Enter to send, Shift+Enter for newline)"
@@ -197,10 +361,30 @@ export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelPro
             id="chat-input-textarea"
           />
           <div className="chat-input-footer">
+            <div className="chat-input-actions">
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                multiple
+                onChange={handleFileChange}
+              />
+              <button
+                className="btn-icon-attach"
+                onClick={handleTriggerUpload}
+                disabled={isStreaming}
+                title="Attach files (images or text)"
+                type="button"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+            </div>
             <button
               className="btn-primary"
               onClick={handleSend}
-              disabled={isStreaming || inputText.trim().length === 0}
+              disabled={isStreaming || (inputText.trim().length === 0 && stagedAttachments.length === 0)}
               id="chat-send-btn"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
