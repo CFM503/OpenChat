@@ -98,6 +98,7 @@ export function App() {
   const [tavilyApiKey, setTavilyApiKey] = useState(() => {
     return localStorage.getItem('openchat_tavily_key') || '';
   });
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 
   // --- Refs ---
   const modelRouterRef = useRef(new ModelRouter(models));
@@ -105,25 +106,67 @@ export function App() {
   const streamAbortRef = useRef(false);
 
   // --- Effects ---
+  // Load config on mount
   useEffect(() => {
+    const loadLocalConfig = async () => {
+      try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+          const config = await response.json();
+          if (config && Object.keys(config).length > 0) {
+            if (config.models) {
+              setModels(config.models);
+              modelRouterRef.current = new ModelRouter(config.models);
+            }
+            if (config.activeModelId) {
+              setActiveModelId(config.activeModelId);
+            }
+            if (config.webSearchEnabled !== undefined) {
+              setWebSearchEnabled(config.webSearchEnabled);
+            }
+            if (config.tavilyApiKey !== undefined) {
+              setTavilyApiKey(config.tavilyApiKey);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load local config file:', err);
+      } finally {
+        setIsConfigLoaded(true);
+      }
+    };
+    loadLocalConfig();
+  }, []);
+
+  // Save config on state changes
+  useEffect(() => {
+    if (!isConfigLoaded) return;
+
     localStorage.setItem('openchat_models', JSON.stringify(models));
-  }, [models]);
-
-  useEffect(() => {
-    if (activeModelId) {
-      localStorage.setItem('openchat_active_model_id', activeModelId);
-    } else {
-      localStorage.removeItem('openchat_active_model_id');
-    }
-  }, [activeModelId]);
-
-  useEffect(() => {
+    localStorage.setItem('openchat_active_model_id', activeModelId);
     localStorage.setItem('openchat_web_search_enabled', String(webSearchEnabled));
-  }, [webSearchEnabled]);
-
-  useEffect(() => {
     localStorage.setItem('openchat_tavily_key', tavilyApiKey);
-  }, [tavilyApiKey]);
+
+    const saveLocalConfig = async () => {
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            models,
+            activeModelId,
+            webSearchEnabled,
+            tavilyApiKey,
+          }),
+        });
+      } catch (err) {
+        console.error('Failed to save local config:', err);
+      }
+    };
+    saveLocalConfig();
+  }, [models, activeModelId, webSearchEnabled, tavilyApiKey, isConfigLoaded]);
 
   const handleToggleWebSearch = useCallback((enabled: boolean) => {
     if (enabled && !tavilyApiKey.trim()) {

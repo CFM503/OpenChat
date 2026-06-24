@@ -35,8 +35,10 @@ It features an immersive dual-pane layout: a **Chat & Thinking Console** on the 
    - Built-in adapter system mapping payloads to standard OpenAI completions or local Ollama instances.
    - Comprehensive model validation panel allowing users to live-edit, delete, add, and switch default router choices.
 
-6. **Persistent Client Configuration**
-   - Saves and loads custom model configurations, endpoints, API keys, and the active model selection automatically using browser `localStorage` to survive page reloads.
+6. **Persistent Client Configuration (.openchat & LocalStorage)**
+   - **Local Config File**: Automatically loads and saves all custom model configs, active selections, web search flags, and API keys to a local `.openchat` file in the project root via server endpoints.
+   - **Local Storage Sync**: Dual-syncs state with browser `localStorage` as a fast local fallback.
+   - **Git Exclusion**: Automatically ignores `.openchat` in version control to ensure API credentials are never leaked.
 
 7. **Startup Port Occupy Check**
    - Performs a port check on startup to determine if default port 3000 is occupied by another process, printing an eye-catching warning banner in the terminal to help troubleshoot local port conflicts.

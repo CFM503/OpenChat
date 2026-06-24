@@ -4,6 +4,20 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [1.0.5] - 2026-06-24
+
+### Added
+- **Local Config File Persistence (`.openchat`)**:
+  - Implemented local config file persistence inside the project workspace directory (saving API keys, search keys, and model routes to `.openchat` in the project root).
+  - Developed a custom server-side Vite plugin (`localConfigPlugin`) in [vite.config.ts](file:///d:/SOFT/ai/github/OpenChat/vite.config.ts) extending both dev and preview servers with a `/api/config` GET/POST endpoint to read/write config data locally.
+  - Configured [App.tsx](file:///d:/SOFT/ai/github/OpenChat/src/App.tsx) with mounts loading configs from `/api/config` and updating local states. Added race-condition prevention utilizing an `isConfigLoaded` flag.
+  - Modified [.gitignore](file:///d:/SOFT/ai/github/OpenChat/.gitignore) to exclude `.openchat` from version control, ensuring credentials are never committed.
+
+### Changed
+- Refactored `App.tsx` config-saving logic to use a single unified `useEffect` synchronization hook.
+
+---
+
 ## [1.0.4] - 2026-06-24
 
 ### Added
