@@ -9,6 +9,7 @@ import { createParserState, feedChunk, finalize } from './core/streamParser';
 import { ModelRouter, DEFAULT_MODELS } from './core/modelRouter';
 import { TaskManager } from './core/taskStateMachine';
 import { simulateStream } from './core/simulatedApi';
+import { canMakeRealRequest, streamRealResponse } from './core/apiClient';
 import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
@@ -65,7 +66,7 @@ export function App() {
     {
       id: uid('msg'),
       role: 'assistant',
-      content: 'Welcome to **OpenChat**! I\'m your AI coding assistant. Ask me anything about coding, architecture, or use the workspace to manage tasks and write code.\n\nTry sending a message to see the streaming response with `<thinking>` block support!',
+      content: 'Welcome to **OpenChat**! I\'m your AI coding assistant.\n\n🔌 **Real Mode**: Configure your API key in ⚙️ Settings (`Ctrl+,`) to connect to OpenAI, Ollama, or any compatible endpoint.\n\n🎮 **Demo Mode**: No API key? No problem — send a message to see a simulated streaming response with `<thinking>` block support!',
       timestamp: Date.now(),
     },
   ]);
@@ -117,61 +118,87 @@ export function App() {
       let accumulatedContent = '';
       let accumulatedThinking = '';
 
-      simulateStream(
-        [...messages, userMsg],
-        (chunk: string) => {
-          if (streamAbortRef.current) return;
+      // Shared chunk handler for both real and simulated streams
+      const handleChunk = (chunk: string) => {
+        if (streamAbortRef.current) return;
 
-          const result = feedChunk(parserState, chunk);
-          parserState = result.state;
+        const result = feedChunk(parserState, chunk);
+        parserState = result.state;
 
-          for (const parsed of result.chunks) {
-            if (parsed.type === 'thinking') {
-              accumulatedThinking += parsed.text;
-            } else {
-              accumulatedContent += parsed.text;
-            }
+        for (const parsed of result.chunks) {
+          if (parsed.type === 'thinking') {
+            accumulatedThinking += parsed.text;
+          } else {
+            accumulatedContent += parsed.text;
           }
+        }
 
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantMsgId
-                ? {
-                    ...m,
-                    content: accumulatedContent,
-                    thinking: accumulatedThinking,
-                  }
-                : m
-            )
-          );
-        },
-        () => {
-          // Finalize
-          const remaining = finalize(parserState);
-          for (const parsed of remaining) {
-            if (parsed.type === 'thinking') {
-              accumulatedThinking += parsed.text;
-            } else {
-              accumulatedContent += parsed.text;
-            }
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  content: accumulatedContent,
+                  thinking: accumulatedThinking,
+                }
+              : m
+          )
+        );
+      };
+
+      const handleDone = () => {
+        // Finalize
+        const remaining = finalize(parserState);
+        for (const parsed of remaining) {
+          if (parsed.type === 'thinking') {
+            accumulatedThinking += parsed.text;
+          } else {
+            accumulatedContent += parsed.text;
           }
+        }
 
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantMsgId
-                ? {
-                    ...m,
-                    content: accumulatedContent,
-                    thinking: accumulatedThinking,
-                    isStreaming: false,
-                  }
-                : m
-            )
-          );
-          setIsStreaming(false);
-        },
-        { speed: 60 }
-      );
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  content: accumulatedContent,
+                  thinking: accumulatedThinking,
+                  isStreaming: false,
+                }
+              : m
+          )
+        );
+        setIsStreaming(false);
+      };
+
+      // Decide: real API or simulated demo
+      const activeConfig = modelRouterRef.current.getModel(activeModelId);
+      if (canMakeRealRequest(activeConfig)) {
+        // ── Real API call ──
+        const abortController = new AbortController();
+        streamRealResponse(
+          modelRouterRef.current,
+          activeModelId,
+          [...messages, userMsg],
+          handleChunk,
+          handleDone,
+          (error: Error) => {
+            // On error, show the error message in the assistant bubble
+            accumulatedContent += `\n\n⚠️ **API Error**: ${error.message}`;
+            handleDone();
+          },
+          abortController.signal
+        );
+      } else {
+        // ── Demo simulation fallback ──
+        simulateStream(
+          [...messages, userMsg],
+          handleChunk,
+          handleDone,
+          { speed: 60 }
+        );
+      }
     },
     [isStreaming, activeModelId, messages]
   );
