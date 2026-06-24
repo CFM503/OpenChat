@@ -1,0 +1,122 @@
+// ============================================================================
+// Test Suite B: Model Configuration and Routing Gateway
+// ============================================================================
+
+import { describe, it, expect } from 'vitest';
+import { ModelRouter, DEFAULT_MODELS } from '../core/modelRouter';
+import type { ModelConfig, ChatMessage } from '../core/types';
+
+describe('ModelRouter Gateway', () => {
+  it('should initialize with default model configurations', () => {
+    const router = new ModelRouter();
+    const models = router.getAllModels();
+    expect(models.length).toBe(DEFAULT_MODELS.length);
+    
+    const defaultModel = router.getDefaultModel();
+    expect(defaultModel).toBeDefined();
+    expect(defaultModel?.id).toBe('gpt-4o');
+  });
+
+  it('should support adding and fetching new custom models', () => {
+    const router = new ModelRouter([]);
+    const customConfig: ModelConfig = {
+      id: 'custom-deepseek',
+      name: 'DeepSeek Chat',
+      provider: 'custom',
+      endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      apiKey: 'sk-deepseek-test-key-12345',
+      model: 'deepseek-chat',
+      maxTokens: 8192,
+      temperature: 0.2,
+      isDefault: true,
+    };
+
+    router.addModel(customConfig);
+    
+    const fetched = router.getModel('custom-deepseek');
+    expect(fetched).toBeDefined();
+    expect(fetched?.name).toBe('DeepSeek Chat');
+    expect(fetched?.apiKey).toBe('sk-deepseek-test-key-12345');
+    expect(router.getDefaultModel()?.id).toBe('custom-deepseek');
+  });
+
+  it('should build a valid OpenAI request body and headers', () => {
+    const router = new ModelRouter();
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'user', content: 'Hello AI', timestamp: Date.now() }
+    ];
+
+    const req = router.buildRequest('gpt-4o', messages, true);
+    expect(req).not.toBeNull();
+    if (req) {
+      expect(req.url).toBe('https://api.openai.com/v1/chat/completions');
+      expect(req.init.method).toBe('POST');
+      
+      const body = JSON.parse(req.init.body as string);
+      expect(body.model).toBe('gpt-4o');
+      expect(body.stream).toBe(true);
+      expect(body.messages).toEqual([{ role: 'user', content: 'Hello AI' }]);
+    }
+  });
+
+  it('should build a valid Ollama request body and options', () => {
+    const router = new ModelRouter();
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'user', content: 'Tell me a joke', timestamp: Date.now() }
+    ];
+
+    const req = router.buildRequest('ollama-llama3', messages, false);
+    expect(req).not.toBeNull();
+    if (req) {
+      expect(req.url).toBe('http://localhost:11434/api/chat');
+      
+      const body = JSON.parse(req.init.body as string);
+      expect(body.model).toBe('llama3');
+      expect(body.stream).toBe(false);
+      expect(body.options.temperature).toBe(0.7);
+    }
+  });
+
+  it('should validate configurations correctly', () => {
+    const router = new ModelRouter();
+
+    // Invalid OpenAI configuration without API key
+    const invalidConfig: Partial<ModelConfig> = {
+      id: 'openai-invalid',
+      name: 'OpenAI Test',
+      provider: 'openai',
+      endpoint: 'https://api.openai.com/v1/chat/completions',
+      model: 'gpt-4o',
+      maxTokens: 4096,
+      temperature: 0.7,
+    };
+
+    const errors = router.validateConfig(invalidConfig);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors).toContain('API key is required for OpenAI provider');
+
+    // Invalid temperature and tokens
+    const invalidConfig2: Partial<ModelConfig> = {
+      id: 'custom-invalid',
+      name: 'Custom test',
+      provider: 'custom',
+      endpoint: 'https://api.custom.com',
+      model: 'test',
+      maxTokens: -5,
+      temperature: 3.5,
+    };
+
+    const errors2 = router.validateConfig(invalidConfig2);
+    expect(errors2).toContain('Max tokens must be between 1 and 128000');
+    expect(errors2).toContain('Temperature must be between 0 and 2');
+  });
+
+  it('should support deleting model configurations', () => {
+    const router = new ModelRouter();
+    expect(router.getModel('gpt-4o')).toBeDefined();
+    
+    const deleted = router.removeModel('gpt-4o');
+    expect(deleted).toBe(true);
+    expect(router.getModel('gpt-4o')).toBeUndefined();
+  });
+});
