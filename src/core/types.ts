@@ -117,4 +117,6 @@ export interface AppState {
   sidebarCollapsed: boolean;
   activeTab: 'chat' | 'tasks' | 'models' | 'files';
   rightPanelTab: 'code' | 'tasks';
+  webSearchEnabled: boolean;
+  tavilyApiKey?: string;
 }

@@ -17,7 +17,12 @@ It features an immersive dual-pane layout: a **Chat & Thinking Console** on the 
    - **Inline Code Expanders**: Clickable file cards inside the chat bubble list toggle open/closed to preview code file content.
    - **Vision & Prompt Injections**: Maps attachments to OpenAI multimodal payloads (`image_url`), Ollama vision arrays, and appends text file contents as formatted markdown blocks in text prompts.
 
-3. **Real Streaming API Client**
+3. **Web Search Integration (联网搜索)**
+   - **Tavily Search Engine**: Direct integration with Tavily API for LLM-optimized real-time web search capabilities.
+   - **Globe Toggle**: Quick-toggle button (`🌐`) in the chat footer with active glow outline styling and fallback guidance when API key is missing.
+   - **Dynamic Context Injection**: Shows a "🔍 Searching..." indicator, queries web results, and appends formatted search result snippets to system prompt context transparently behind the scenes.
+
+4. **Real Streaming API Client**
    - Full support for OpenAI-compatible Server-Sent Events (SSE) streaming (`text/event-stream`).
    - Native support for local Ollama newline-delimited JSON streams.
    - Built-in `AbortController` cancellation to stop response generation on the fly.
@@ -54,6 +59,7 @@ CHANGELOG.md                  # Development history and version logs
 src/
 ├── core/
 │   ├── types.ts              # System interfaces and type declarations
+│   ├── searchClient.ts       # Web search client (Tavily Search API)
 │   ├── streamParser.ts       # Parses <thinking> block stream chunks
 │   ├── modelRouter.ts        # Model routing and URL normalization
 │   ├── apiClient.ts          # Real-time streaming API client (OpenAI SSE / Ollama)
@@ -66,6 +72,7 @@ src/
 │   └── ModelConfigPanel.tsx  # Dynamic model configuration manager
 ├── test/
 │   ├── setup.ts              # Happy/js-dom testing setup imports
+│   ├── searchClient.test.ts  # Test Suite E: Web search client mock fetch tests
 │   ├── streamParser.test.ts  # Test Suite A: Stream parser & tag extraction
 │   ├── modelRouter.test.ts   # Test Suite B: Model configuration, normalization & requests
 │   ├── taskStateMachine.test.ts # Test Suite C: Task state transition flows

@@ -14,6 +14,8 @@ interface ModelConfigPanelProps {
   onUpdateModel: (config: ModelConfig) => void;
   onDeleteModel: (id: string) => void;
   onSetActive: (id: string) => void;
+  tavilyApiKey: string;
+  onUpdateTavilyKey: (key: string) => void;
 }
 
 export function ModelConfigPanel({
@@ -23,6 +25,8 @@ export function ModelConfigPanel({
   onUpdateModel,
   onDeleteModel,
   onSetActive,
+  tavilyApiKey,
+  onUpdateTavilyKey,
 }: ModelConfigPanelProps) {
   const router = new ModelRouter();
 
@@ -165,6 +169,26 @@ export function ModelConfigPanel({
                 </div>
               </div>
             ))}
+          </div>
+
+          <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(148, 163, 184, 0.1)' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '12px' }}>Search Configurations</h3>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="search-key-input">
+                Tavily API Key (For Web Search)
+              </label>
+              <input
+                type="password"
+                className="form-input"
+                id="search-key-input"
+                value={tavilyApiKey}
+                onChange={e => onUpdateTavilyKey(e.target.value)}
+                placeholder="Enter your Tavily API Key..."
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                💡 Web Search uses Tavily. Get a free key (1,000 queries/month) at <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-info)' }}>tavily.com</a>.
+              </span>
+            </div>
           </div>
         </>
       ) : (

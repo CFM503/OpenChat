@@ -133,4 +133,41 @@ describe('ChatPanel Component Attachments Integration', () => {
     const sendButton = container.querySelector('#chat-send-btn') as HTMLButtonElement;
     expect(sendButton).toBeDisabled();
   });
+
+  it('should render the web search button and trigger onToggleWebSearch when clicked', () => {
+    const handleToggleWebSearch = vi.fn();
+    const { container } = render(
+      <ChatPanel
+        messages={[]}
+        onSendMessage={() => {}}
+        isStreaming={false}
+        webSearchEnabled={false}
+        onToggleWebSearch={handleToggleWebSearch}
+        hasSearchKey={true}
+      />
+    );
+
+    const searchButton = container.querySelector('#btn-web-search-toggle') as HTMLButtonElement;
+    expect(searchButton).not.toBeNull();
+    expect(searchButton.className).not.toContain('active');
+
+    fireEvent.click(searchButton);
+    expect(handleToggleWebSearch).toHaveBeenCalledWith(true);
+  });
+
+  it('should render the web search button as active when webSearchEnabled is true', () => {
+    const { container } = render(
+      <ChatPanel
+        messages={[]}
+        onSendMessage={() => {}}
+        isStreaming={false}
+        webSearchEnabled={true}
+        hasSearchKey={true}
+      />
+    );
+
+    const searchButton = container.querySelector('#btn-web-search-toggle') as HTMLButtonElement;
+    expect(searchButton).not.toBeNull();
+    expect(searchButton.className).toContain('active');
+  });
 });

@@ -641,6 +641,32 @@ body {
   border-color: var(--text-secondary);
 }
 
+.btn-web-search {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.btn-web-search:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+  border-color: var(--text-secondary);
+}
+
+.btn-web-search.active {
+  color: #06b6d4;
+  border-color: rgba(6, 182, 212, 0.4);
+  background-color: rgba(6, 182, 212, 0.1);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+}
+
 /* Sent message attachments */
 .message-attachments {
   display: flex;

@@ -13,6 +13,7 @@ import { canMakeRealRequest, streamRealResponse } from './core/apiClient';
 import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
+import { searchWeb } from './core/searchClient';
 
 // ── Unique ID generator ────────────────────────────────────────────────────
 let idCounter = 0;
@@ -90,6 +91,13 @@ export function App() {
   const [rightPanelTab, setRightPanelTab] = useState<'code' | 'tasks'>('code');
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
+    const saved = localStorage.getItem('openchat_web_search_enabled');
+    return saved === 'true';
+  });
+  const [tavilyApiKey, setTavilyApiKey] = useState(() => {
+    return localStorage.getItem('openchat_tavily_key') || '';
+  });
 
   // --- Refs ---
   const modelRouterRef = useRef(new ModelRouter(models));
@@ -109,9 +117,25 @@ export function App() {
     }
   }, [activeModelId]);
 
-  // --- Chat handlers ---
+  useEffect(() => {
+    localStorage.setItem('openchat_web_search_enabled', String(webSearchEnabled));
+  }, [webSearchEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('openchat_tavily_key', tavilyApiKey);
+  }, [tavilyApiKey]);
+
+  const handleToggleWebSearch = useCallback((enabled: boolean) => {
+    if (enabled && !tavilyApiKey.trim()) {
+      alert("Tavily API Key is missing. Please configure it in the Settings panel.");
+      setShowModelConfig(true);
+      return;
+    }
+    setWebSearchEnabled(enabled);
+  }, [tavilyApiKey]);
+
   const handleSendMessage = useCallback(
-    (content: string, attachments?: ChatAttachment[]) => {
+    async (content: string, attachments?: ChatAttachment[]) => {
       if (isStreaming) return;
       if (content.trim().length === 0 && (!attachments || attachments.length === 0)) return;
 
@@ -198,6 +222,60 @@ export function App() {
         setIsStreaming(false);
       };
 
+      let injectedMessages = [...messages, userMsg];
+
+      if (webSearchEnabled && tavilyApiKey.trim()) {
+        // Set state to "Searching..."
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  content: `🔍 Searching the web for: "${content.trim()}"...`,
+                }
+              : m
+          )
+        );
+
+        try {
+          const searchContext = await searchWeb(content.trim(), tavilyApiKey.trim());
+          
+          const systemMsg: ChatMessage = {
+            id: uid('msg'),
+            role: 'system',
+            content: searchContext,
+            timestamp: Date.now(),
+          };
+          
+          injectedMessages = [...messages, systemMsg, userMsg];
+          
+          // Clear "Searching..." so assistant content starts fresh
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content: '',
+                  }
+                : m
+            )
+          );
+        } catch (err: any) {
+          console.error('Search failed:', err);
+          accumulatedContent = `⚠️ **Web Search Failed**: ${err.message}\n\n`;
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content: accumulatedContent,
+                  }
+                : m
+            )
+          );
+        }
+      }
+
       // Decide: real API or simulated demo
       const activeConfig = modelRouterRef.current.getModel(activeModelId);
       if (canMakeRealRequest(activeConfig)) {
@@ -206,7 +284,7 @@ export function App() {
         streamRealResponse(
           modelRouterRef.current,
           activeModelId,
-          [...messages, userMsg],
+          injectedMessages,
           handleChunk,
           handleDone,
           (error: Error) => {
@@ -219,14 +297,14 @@ export function App() {
       } else {
         // ── Demo simulation fallback ──
         simulateStream(
-          [...messages, userMsg],
+          injectedMessages,
           handleChunk,
           handleDone,
           { speed: 60 }
         );
       }
     },
-    [isStreaming, activeModelId, messages]
+    [isStreaming, activeModelId, messages, webSearchEnabled, tavilyApiKey]
   );
 
   // --- Model handlers ---
@@ -405,6 +483,9 @@ export function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isStreaming={isStreaming}
+            webSearchEnabled={webSearchEnabled}
+            onToggleWebSearch={handleToggleWebSearch}
+            hasSearchKey={!!tavilyApiKey.trim()}
           />
         </div>
 
@@ -454,6 +535,8 @@ export function App() {
               onUpdateModel={handleUpdateModel}
               onDeleteModel={handleDeleteModel}
               onSetActive={setActiveModelId}
+              tavilyApiKey={tavilyApiKey}
+              onUpdateTavilyKey={setTavilyApiKey}
             />
           </div>
         </div>

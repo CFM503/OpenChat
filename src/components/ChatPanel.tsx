@@ -10,6 +10,9 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string, attachments: ChatAttachment[]) => void;
   isStreaming: boolean;
+  webSearchEnabled?: boolean;
+  onToggleWebSearch?: (enabled: boolean) => void;
+  hasSearchKey?: boolean;
 }
 
 // Collapsible thinking section component
@@ -182,7 +185,14 @@ function TextAttachmentCard({
   );
 }
 
-export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelProps) {
+export function ChatPanel({
+  messages,
+  onSendMessage,
+  isStreaming,
+  webSearchEnabled = false,
+  onToggleWebSearch = () => {},
+  hasSearchKey = false,
+}: ChatPanelProps) {
   const [inputText, setInputText] = useState('');
   const [stagedAttachments, setStagedAttachments] = useState<ChatAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -378,6 +388,20 @@ export function ChatPanel({ messages, onSendMessage, isStreaming }: ChatPanelPro
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              <button
+                className={`btn-web-search ${webSearchEnabled ? 'active' : ''}`}
+                onClick={() => onToggleWebSearch(!webSearchEnabled)}
+                disabled={isStreaming}
+                title={hasSearchKey ? (webSearchEnabled ? "Disable Web Search" : "Enable Web Search") : "Enable Web Search (Tavily API Key is missing, configure in Settings)"}
+                type="button"
+                id="btn-web-search-toggle"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
               </button>
             </div>

@@ -4,6 +4,21 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [1.0.3] - 2026-06-24
+
+### Added
+- **Web Search Integration (联网搜索)**:
+  - Integrated Tavily Search API directly on the client side, utilizing its LLM-optimized search engine for real-time information retrieval (e.g. weather, news, events).
+  - Added a global search toggle button (`🌐`) to the chat footer input bar with interactive active/inactive states (neon cyan glow).
+  - Created a Tavily API Key settings field in the Model Configuration settings modal with persistence in LocalStorage.
+  - Implemented smart web search pre-dispatch fetching inside the chat workflow: when enabled, displays a "🔍 Searching..." status indicator, fetches search snippets, formats search results as a system context prompt block, and injects it into the prompt payload before sending it to the active model.
+  - Added component and client tests under `searchClient.test.ts` and `ChatPanel.test.tsx` verifying search client responses, error handling, state triggers, and UI button active states.
+
+### Changed
+- Expanded the Vitest suite to 43 specs (all passing).
+
+---
+
 ## [1.0.2] - 2026-06-24
 
 ### Added
