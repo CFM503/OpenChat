@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import type { ModelConfig, ModelProvider } from '../core/types';
-import { ModelRouter } from '../core/modelRouter';
+import { ModelRouter, normalizeEndpoint } from '../core/modelRouter';
 
 interface ModelConfigPanelProps {
   models: ModelConfig[];
@@ -229,10 +229,20 @@ export function ModelConfigPanel({
               className="form-input"
               value={formEndpoint}
               onChange={e => setFormEndpoint(e.target.value)}
-              placeholder="https://api..."
+              onBlur={() => {
+                if (formProvider !== 'ollama' && formEndpoint.trim()) {
+                  setFormEndpoint(normalizeEndpoint(formEndpoint));
+                }
+              }}
+              placeholder="https://api.example.com/v1"
               required
               id="model-endpoint-input"
             />
+            {formProvider !== 'ollama' && formEndpoint.trim() && !formEndpoint.includes('/chat/completions') && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-info)', marginTop: '4px' }}>
+                💡 Will auto-complete to: {normalizeEndpoint(formEndpoint)}
+              </span>
+            )}
           </div>
 
           {formProvider !== 'ollama' && (

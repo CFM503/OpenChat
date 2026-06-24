@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { describe, it, expect } from 'vitest';
-import { ModelRouter, DEFAULT_MODELS } from '../core/modelRouter';
+import { ModelRouter, DEFAULT_MODELS, normalizeEndpoint } from '../core/modelRouter';
 import type { ModelConfig, ChatMessage } from '../core/types';
 
 describe('ModelRouter Gateway', () => {
@@ -118,5 +118,86 @@ describe('ModelRouter Gateway', () => {
     const deleted = router.removeModel('gpt-4o');
     expect(deleted).toBe(true);
     expect(router.getModel('gpt-4o')).toBeUndefined();
+  });
+
+  it('should auto-normalize base URLs when building custom requests', () => {
+    const router = new ModelRouter([]);
+    router.addModel({
+      id: 'custom-base-url',
+      name: 'Base URL Test',
+      provider: 'custom',
+      endpoint: 'https://token-plan-cn.xiaomimimo.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-4o',
+      maxTokens: 4096,
+      temperature: 0.7,
+      isDefault: true,
+    });
+
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'user', content: 'Hello', timestamp: Date.now() },
+    ];
+
+    const req = router.buildRequest('custom-base-url', messages, true);
+    expect(req).not.toBeNull();
+    if (req) {
+      expect(req.url).toBe('https://token-plan-cn.xiaomimimo.com/v1/chat/completions');
+    }
+  });
+});
+
+describe('normalizeEndpoint', () => {
+  it('should append /v1/chat/completions to bare domain', () => {
+    expect(normalizeEndpoint('https://api.example.com')).toBe(
+      'https://api.example.com/v1/chat/completions'
+    );
+  });
+
+  it('should append /chat/completions to /v1 path', () => {
+    expect(normalizeEndpoint('https://api.example.com/v1')).toBe(
+      'https://api.example.com/v1/chat/completions'
+    );
+  });
+
+  it('should handle trailing slash on /v1/', () => {
+    expect(normalizeEndpoint('https://api.example.com/v1/')).toBe(
+      'https://api.example.com/v1/chat/completions'
+    );
+  });
+
+  it('should handle trailing slash on bare domain', () => {
+    expect(normalizeEndpoint('https://api.example.com/')).toBe(
+      'https://api.example.com/v1/chat/completions'
+    );
+  });
+
+  it('should leave already-complete URL unchanged', () => {
+    expect(normalizeEndpoint('https://api.openai.com/v1/chat/completions')).toBe(
+      'https://api.openai.com/v1/chat/completions'
+    );
+  });
+
+  it('should strip trailing slash from complete URL', () => {
+    expect(normalizeEndpoint('https://api.openai.com/v1/chat/completions/')).toBe(
+      'https://api.openai.com/v1/chat/completions'
+    );
+  });
+
+  it('should handle real-world base URLs', () => {
+    expect(normalizeEndpoint('https://token-plan-cn.xiaomimimo.com/v1')).toBe(
+      'https://token-plan-cn.xiaomimimo.com/v1/chat/completions'
+    );
+    expect(normalizeEndpoint('https://api.deepseek.com/v1')).toBe(
+      'https://api.deepseek.com/v1/chat/completions'
+    );
+    expect(normalizeEndpoint('https://openrouter.ai/api/v1')).toBe(
+      'https://openrouter.ai/api/v1/chat/completions'
+    );
+  });
+
+  it('should trim whitespace', () => {
+    expect(normalizeEndpoint('  https://api.example.com/v1  ')).toBe(
+      'https://api.example.com/v1/chat/completions'
+    );
   });
 });

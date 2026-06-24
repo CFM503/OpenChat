@@ -6,6 +6,43 @@
 import type { ModelConfig, ModelProvider, ChatMessage } from './types';
 
 /**
+ * Normalizes an endpoint URL for OpenAI-compatible providers.
+ *
+ * Rules:
+ *  - Strips trailing slashes
+ *  - If URL already ends with /chat/completions → keep as-is
+ *  - If URL ends with /v1 or /v1/ → append /chat/completions
+ *  - Otherwise → append /v1/chat/completions
+ *
+ * Only applies to 'openai' and 'custom' providers. Ollama has its own path.
+ *
+ * Examples:
+ *   https://api.example.com/v1           → https://api.example.com/v1/chat/completions
+ *   https://api.example.com/v1/          → https://api.example.com/v1/chat/completions
+ *   https://api.example.com              → https://api.example.com/v1/chat/completions
+ *   https://api.example.com/             → https://api.example.com/v1/chat/completions
+ *   https://api.example.com/v1/chat/completions  → (unchanged)
+ *   https://api.example.com/v1/chat/completions/ → (trailing slash removed)
+ */
+export function normalizeEndpoint(url: string): string {
+  // Trim whitespace and trailing slashes
+  let normalized = url.trim().replace(/\/+$/, '');
+
+  // Already ends with /chat/completions — done
+  if (normalized.endsWith('/chat/completions')) {
+    return normalized;
+  }
+
+  // Ends with /v1 — just append /chat/completions
+  if (normalized.endsWith('/v1')) {
+    return normalized + '/chat/completions';
+  }
+
+  // Otherwise append full /v1/chat/completions
+  return normalized + '/v1/chat/completions';
+}
+
+/**
  * Default model configurations
  */
 export const DEFAULT_MODELS: ModelConfig[] = [
@@ -127,7 +164,7 @@ export class ModelRouter {
     }
 
     return {
-      url: config.endpoint,
+      url: normalizeEndpoint(config.endpoint),
       init: {
         method: 'POST',
         headers,
@@ -187,7 +224,7 @@ export class ModelRouter {
     }
 
     return {
-      url: config.endpoint,
+      url: normalizeEndpoint(config.endpoint),
       init: {
         method: 'POST',
         headers,
