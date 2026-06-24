@@ -12,25 +12,36 @@ It features an immersive dual-pane layout: a **Chat & Thinking Console** on the 
    - **Left Panel (Chat Console)**: High fidelity chat feed featuring real-time stream chunk compilation, automatic code syntax highlighting, and expandable thinking blocks (collapsing `<thinking>` tags into sleek UI elements).
    - **Right Panel (Workspace)**: Toggleable tabs between a Code Editor (supporting tabbed file sheets) and a Task Kanban Board.
 
-2. **Real Streaming API Client**
+2. **File Upload & Model Attachment Support**
+   - **Asynchronous Staging**: Select and stage files asynchronously using `FileReader` pipelines. Displays image thumbnails or document badges with file sizes before sending.
+   - **Inline Code Expanders**: Clickable file cards inside the chat bubble list toggle open/closed to preview code file content.
+   - **Vision & Prompt Injections**: Maps attachments to OpenAI multimodal payloads (`image_url`), Ollama vision arrays, and appends text file contents as formatted markdown blocks in text prompts.
+
+3. **Real Streaming API Client**
    - Full support for OpenAI-compatible Server-Sent Events (SSE) streaming (`text/event-stream`).
    - Native support for local Ollama newline-delimited JSON streams.
    - Built-in `AbortController` cancellation to stop response generation on the fly.
    - Automatic fallback to simulated offline Demo mode when API credentials are not provided.
 
-3. **Smart Endpoint Auto-Completion**
+4. **Smart Endpoint Auto-Completion**
    - Normalizes and auto-completes base URLs (e.g. `https://example.com/v1`) to standard completion paths (`/v1/chat/completions`) automatically on input blur and request dispatch.
 
-4. **Model Routing Gateway**
+5. **Model Routing Gateway**
    - Built-in adapter system mapping payloads to standard OpenAI completions or local Ollama instances.
    - Comprehensive model validation panel allowing users to live-edit, delete, add, and switch default router choices.
 
-5. **Agent Task State Machine**
+6. **Persistent Client Configuration**
+   - Saves and loads custom model configurations, endpoints, API keys, and the active model selection automatically using browser `localStorage` to survive page reloads.
+
+7. **Startup Port Occupy Check**
+   - Performs a port check on startup to determine if default port 3000 is occupied by another process, printing an eye-catching warning banner in the terminal to help troubleshoot local port conflicts.
+
+8. **Agent Task State Machine**
    - Enforcement of a deterministic finite state machine (DFA) representing task transitions:
      `Pending` $\rightarrow$ `Running` $\rightarrow$ `Success` / `Failed` (with `Retry` & `Cancel` capabilities).
    - Live execution logging system outputting color-coded statuses (Info, Warn, Success, Error).
 
-6. **Premium Design System**
+9. **Premium Design System**
    - Custom styling with CSS properties.
    - Modern elements: Glassmorphism shadows, glowing status dots, smooth gradient outlines, and custom scrollbar bars.
 
@@ -57,7 +68,8 @@ src/
 │   ├── setup.ts              # Happy/js-dom testing setup imports
 │   ├── streamParser.test.ts  # Test Suite A: Stream parser & tag extraction
 │   ├── modelRouter.test.ts   # Test Suite B: Model configuration, normalization & requests
-│   └── taskStateMachine.test.ts # Test Suite C: Task state transition flows
+│   ├── taskStateMachine.test.ts # Test Suite C: Task state transition flows
+│   └── ChatPanel.test.tsx    # Test Suite D: Component file attachment integration tests
 ├── index.css                 # Dark theme design system stylesheet
 ├── App.tsx                   # Main orchestrator & global React state
 └── main.tsx                  # React DOM mount point
