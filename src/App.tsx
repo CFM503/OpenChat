@@ -71,8 +71,19 @@ export function App() {
     },
   ]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [models, setModels] = useState<ModelConfig[]>([...DEFAULT_MODELS]);
-  const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODELS[0].id);
+  const [models, setModels] = useState<ModelConfig[]>(() => {
+    const saved = localStorage.getItem('openchat_models');
+    return saved ? JSON.parse(saved) : [...DEFAULT_MODELS];
+  });
+  const [activeModelId, setActiveModelId] = useState<string>(() => {
+    const saved = localStorage.getItem('openchat_active_model_id');
+    const savedModels = localStorage.getItem('openchat_models');
+    const modelList = savedModels ? JSON.parse(savedModels) : DEFAULT_MODELS;
+    if (saved && modelList.some((m: ModelConfig) => m.id === saved)) {
+      return saved;
+    }
+    return modelList.length > 0 ? modelList[0].id : '';
+  });
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>(DEFAULT_FILES);
   const [activeFileId, setActiveFileId] = useState<string>(DEFAULT_FILES[0].id);
@@ -81,9 +92,22 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // --- Refs ---
-  const modelRouterRef = useRef(new ModelRouter([...DEFAULT_MODELS]));
+  const modelRouterRef = useRef(new ModelRouter(models));
   const taskManagerRef = useRef(new TaskManager());
   const streamAbortRef = useRef(false);
+
+  // --- Effects ---
+  useEffect(() => {
+    localStorage.setItem('openchat_models', JSON.stringify(models));
+  }, [models]);
+
+  useEffect(() => {
+    if (activeModelId) {
+      localStorage.setItem('openchat_active_model_id', activeModelId);
+    } else {
+      localStorage.removeItem('openchat_active_model_id');
+    }
+  }, [activeModelId]);
 
   // --- Chat handlers ---
   const handleSendMessage = useCallback(
