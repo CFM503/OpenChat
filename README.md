@@ -12,16 +12,25 @@ It features an immersive dual-pane layout: a **Chat & Thinking Console** on the 
    - **Left Panel (Chat Console)**: High fidelity chat feed featuring real-time stream chunk compilation, automatic code syntax highlighting, and expandable thinking blocks (collapsing `<thinking>` tags into sleek UI elements).
    - **Right Panel (Workspace)**: Toggleable tabs between a Code Editor (supporting tabbed file sheets) and a Task Kanban Board.
 
-2. **Model Routing Gateway**
+2. **Real Streaming API Client**
+   - Full support for OpenAI-compatible Server-Sent Events (SSE) streaming (`text/event-stream`).
+   - Native support for local Ollama newline-delimited JSON streams.
+   - Built-in `AbortController` cancellation to stop response generation on the fly.
+   - Automatic fallback to simulated offline Demo mode when API credentials are not provided.
+
+3. **Smart Endpoint Auto-Completion**
+   - Normalizes and auto-completes base URLs (e.g. `https://example.com/v1`) to standard completion paths (`/v1/chat/completions`) automatically on input blur and request dispatch.
+
+4. **Model Routing Gateway**
    - Built-in adapter system mapping payloads to standard OpenAI completions or local Ollama instances.
    - Comprehensive model validation panel allowing users to live-edit, delete, add, and switch default router choices.
 
-3. **Agent Task State Machine**
+5. **Agent Task State Machine**
    - Enforcement of a deterministic finite state machine (DFA) representing task transitions:
      `Pending` $\rightarrow$ `Running` $\rightarrow$ `Success` / `Failed` (with `Retry` & `Cancel` capabilities).
    - Live execution logging system outputting color-coded statuses (Info, Warn, Success, Error).
 
-4. **Premium Design System**
+6. **Premium Design System**
    - Custom styling with CSS properties.
    - Modern elements: Glassmorphism shadows, glowing status dots, smooth gradient outlines, and custom scrollbar bars.
 
@@ -30,11 +39,13 @@ It features an immersive dual-pane layout: a **Chat & Thinking Console** on the 
 ## 📂 File Structure
 
 ```
+CHANGELOG.md                  # Development history and version logs
 src/
 ├── core/
 │   ├── types.ts              # System interfaces and type declarations
 │   ├── streamParser.ts       # Parses <thinking> block stream chunks
-│   ├── modelRouter.ts        # Model routing and payload validation
+│   ├── modelRouter.ts        # Model routing and URL normalization
+│   ├── apiClient.ts          # Real-time streaming API client (OpenAI SSE / Ollama)
 │   ├── taskStateMachine.ts   # Transition state machine rules & manager
 │   └── simulatedApi.ts       # Offline text and code generator stream
 ├── components/
@@ -45,7 +56,7 @@ src/
 ├── test/
 │   ├── setup.ts              # Happy/js-dom testing setup imports
 │   ├── streamParser.test.ts  # Test Suite A: Stream parser & tag extraction
-│   ├── modelRouter.test.ts   # Test Suite B: Model configuration & requests
+│   ├── modelRouter.test.ts   # Test Suite B: Model configuration, normalization & requests
 │   └── taskStateMachine.test.ts # Test Suite C: Task state transition flows
 ├── index.css                 # Dark theme design system stylesheet
 ├── App.tsx                   # Main orchestrator & global React state
