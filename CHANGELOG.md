@@ -4,6 +4,20 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [1.0.4] - 2026-06-24
+
+### Added
+- **Message Bubble Copy Functionality**:
+  - Implemented a copy button helper (`MessageCopyButton`) next to timestamps inside the message info row (`.message-info`) of [ChatPanel.tsx](file:///d:/SOFT/ai/github/OpenChat/src/components/ChatPanel.tsx).
+  - Designed the button with dual-state inline SVGs (clipboard icon transforms into a green success checkmark upon click).
+  - Styled copy action hover and active behaviors in [index.css](file:///d:/SOFT/ai/github/OpenChat/src/index.css).
+  - Added a Vitest component test verifying proper DOM rendering, copy action callback trigger, mocked clipboard execution, and transient status updates.
+
+### Changed
+- Expanded the Vitest suite to 44 specs (all passing).
+
+---
+
 ## [1.0.3] - 2026-06-24
 
 ### Added

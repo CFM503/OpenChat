@@ -170,4 +170,38 @@ describe('ChatPanel Component Attachments Integration', () => {
     expect(searchButton).not.toBeNull();
     expect(searchButton.className).toContain('active');
   });
+
+  it('should render the copy button in message info and write to clipboard when clicked', async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextMock,
+      },
+    });
+
+    const mockMessages: ChatMessage[] = [
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: 'Hello, this is a test message to copy.',
+        timestamp: Date.now(),
+      },
+    ];
+
+    render(
+      <ChatPanel
+        messages={mockMessages}
+        onSendMessage={() => {}}
+        isStreaming={false}
+      />
+    );
+
+    const copyBtn = screen.getByTitle('Copy message content');
+    expect(copyBtn).toBeInTheDocument();
+    expect(copyBtn.textContent).toBe('Copy');
+
+    fireEvent.click(copyBtn);
+    expect(writeTextMock).toHaveBeenCalledWith('Hello, this is a test message to copy.');
+    expect(copyBtn.textContent).toBe('Copied!');
+  });
 });

@@ -416,6 +416,29 @@ body {
   justify-content: flex-end;
 }
 
+.msg-copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  transition: color var(--transition-fast);
+}
+
+.msg-copy-btn:hover {
+  color: var(--text-primary);
+}
+
+.msg-copy-btn svg {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 /* --- Thinking block (collapsible) --- */
 
 .thinking-block {
