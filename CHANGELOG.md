@@ -4,6 +4,96 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.8] - 2026-06-26
+
+### Added
+- **Skill System**:
+  - 5 built-in skills: `/review`, `/explain`, `/test`, `/refactor`, `/docs`
+  - Custom skills via `~/.openchat/skills/*.md` with YAML frontmatter
+  - `/` trigger in chat input with SkillPicker dropdown for quick selection
+  - Template expansion with `{{selection}}` placeholder support
+  - REST API: `GET/POST/DELETE /api/skills`, `POST /api/skills/:name/expand`
+
+- **MCP (Model Context Protocol) Integration**:
+  - JSON-RPC over stdio client for MCP protocol communication
+  - Multi-server lifecycle management with auto tool discovery
+  - Tools registered with `mcp_{server}_{tool}` naming convention
+  - Config via `openchat.json` → `mcpServers` field
+  - REST API: `GET/POST/DELETE /api/mcp/servers`
+
+- **Plugin System**:
+  - Dynamic ESM plugin loading with `manifest.json` + `index.js` format
+  - Tools registered with `plugin_{name}_{tool}` naming convention
+  - Example plugin included: `examples/plugins/hello-world/`
+  - REST API: `GET/DELETE /api/plugins`
+
+- **Registry Marketplace**:
+  - Third-party registry support via HTTP API protocol
+  - Search across multiple configured registries simultaneously
+  - Install/uninstall packages (plugins and skills) from the UI
+  - Installed packages tracking with version info and source
+  - Config via `openchat.json` → `registries` field
+  - Store tab in Extensions settings panel with search and install UI
+
+- **Extension Panel UI**:
+  - New `ExtensionPanel` with Installed + Store tabs
+  - `SkillPicker` component for slash command shortcuts
+  - Extension cards with type badges (built-in, plugin, MCP) and action buttons
+  - CSS styles for skill picker, extension cards, and badges
+
+---
+
+## [2.0.0-alpha.7] - 2026-06-26
+
+### Fixed
+- **Image Upload OCR**: Restored multimodal image support for vision models
+  - OpenAI-compatible: uses `image_url` content blocks with base64 data
+  - Ollama: uses native `images` array with raw base64
+  - Images now correctly reach vision models (Gemini, GPT-4o, etc.)
+- **URL Normalization**: Both frontend and backend `normalizeEndpoint` now handle `/v1beta`, `/v1alpha` paths correctly
+  - Google Gemini endpoint: `/v1beta/openai` → `/v1beta/openai/chat/completions`
+
+---
+
+## [2.0.0-alpha.6] - 2026-06-26
+
+### Fixed
+- **Endpoint URL Bug**: URLs with API version prefix (`/v1beta`, `/v1alpha`) now correctly append `/chat/completions` instead of being returned as-is
+  - Ollama paths (`/api/generate`, `/api/chat`) still preserved as-is
+
+---
+
+## [2.0.0-alpha.5] - 2026-06-26
+
+### Security
+- **Config Round-Trip Corruption (Critical)**: Fixed API keys being permanently destroyed when frontend saves masked `***` values back via POST
+  - `GET /api/config` returns full unmasked config (CORS localhost restriction is the protection layer)
+  - `POST /api/config` uses `saveWithMerge()` to preserve existing keys when incoming values are empty or masked
+- **Atomic File Writes**: Config and session files use temp file + `fs.renameSync` pattern for crash-safe persistence
+- **CORS Restriction**: Limited to `http://localhost:3000` and `http://127.0.0.1:3000` origins only
+- **Path Traversal Prevention**: `safePath()` with `fs.realpath` symlink resolution + `path.sep` prefix matching
+- **GitTool Security**: Whitelist of 26 safe arguments (`SAFE_ARGS` Set), `filterArgs()` function, stdout capped at 100KB / stderr at 50KB
+- **BashTool Security**: `safeCwd()` workspace boundary check, 10 dangerous command patterns (`rm -rf /`, `mkfs`, `dd`, fork bombs, `curl|sh`, etc.)
+- **Input Validation**: `validateConfig()` validates all config fields before writing
+- **Error Sanitization**: `sanitizeError()` strips API keys (`sk-*`, `sk-ant-*`, Bearer tokens) from error messages
+- **Graceful Shutdown**: SIGINT/SIGTERM handlers close WebSocket clients and HTTP server
+
+### Fixed
+- **SSE Reconnect**: Exponential backoff (1s→2s→4s→...→30s) with max 10 attempts, `connectingPromise` guard preventing concurrent `connect()` calls
+- **Stale Closure**: `backendAvailableRef` for async callbacks in `App.tsx`
+- **Double onDone**: `doneCalled` guard in `readOpenAIStream` and `readOllamaStream` handlers
+- **Search Error**: Added missing `return` statement in search error catch block
+- **Cleanup**: useEffect cleanup properly aborts active stream
+
+### Added
+- **HTTP Proxy Support**: HTTP/HTTPS/SOCKS5 proxy for all LLM API requests
+  - Uses undici `ProxyAgent` (zero new dependencies, built into Node.js 24)
+  - Config: `proxyUrl` field in settings, persisted to `openchat.json`
+  - UI: "🌐 Network Proxy" section in ModelConfigPanel with input and hints
+  - Dynamic: reads proxy config per-request, changes apply immediately without restart
+
+---
+
 ## [2.0.0-alpha.4] - 2026-06-26
 
 ### Added
@@ -102,9 +192,9 @@ All notable changes to the **OpenChat** project will be documented in this file.
 ### Added
 - **Local Config File Persistence (`.openchat`)**:
   - Implemented local config file persistence inside the project workspace directory (saving API keys, search keys, and model routes to `.openchat` in the project root).
-  - Developed a custom server-side Vite plugin (`localConfigPlugin`) in [vite.config.ts](file:///d:/SOFT/ai/github/OpenChat/vite.config.ts) extending both dev and preview servers with a `/api/config` GET/POST endpoint to read/write config data locally.
-  - Configured [App.tsx](file:///d:/SOFT/ai/github/OpenChat/src/App.tsx) with mounts loading configs from `/api/config` and updating local states. Added race-condition prevention utilizing an `isConfigLoaded` flag.
-  - Modified [.gitignore](file:///d:/SOFT/ai/github/OpenChat/.gitignore) to exclude `.openchat` from version control, ensuring credentials are never committed.
+  - Developed a custom server-side Vite plugin (`localConfigPlugin`) extending both dev and preview servers with a `/api/config` GET/POST endpoint to read/write config data locally.
+  - Configured `App.tsx` with mounts loading configs from `/api/config` and updating local states. Added race-condition prevention utilizing an `isConfigLoaded` flag.
+  - Modified `.gitignore` to exclude `.openchat` from version control, ensuring credentials are never committed.
 
 ### Changed
 - Refactored `App.tsx` config-saving logic to use a single unified `useEffect` synchronization hook.
@@ -115,9 +205,9 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ### Added
 - **Message Bubble Copy Functionality**:
-  - Implemented a copy button helper (`MessageCopyButton`) next to timestamps inside the message info row (`.message-info`) of [ChatPanel.tsx](file:///d:/SOFT/ai/github/OpenChat/src/components/ChatPanel.tsx).
+  - Implemented a copy button helper (`MessageCopyButton`) next to timestamps inside the message info row of `ChatPanel.tsx`.
   - Designed the button with dual-state inline SVGs (clipboard icon transforms into a green success checkmark upon click).
-  - Styled copy action hover and active behaviors in [index.css](file:///d:/SOFT/ai/github/OpenChat/src/index.css).
+  - Styled copy action hover and active behaviors in `index.css`.
   - Added a Vitest component test verifying proper DOM rendering, copy action callback trigger, mocked clipboard execution, and transient status updates.
 
 ### Changed
@@ -162,11 +252,11 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ### Added
 - **Smart Endpoint URL Normalization**:
-  - Added `normalizeEndpoint` utility in `modelRouter.ts` to automatically format base URLs (e.g., `https://token-plan-cn.xiaomimimo.com/v1`) to standard `/v1/chat/completions` endpoints.
+  - Added `normalizeEndpoint` utility in `modelRouter.ts` to automatically format base URLs to standard `/v1/chat/completions` endpoints.
   - Implemented real-time `onBlur` URL completion in the `ModelConfigPanel` UI, complete with an information tooltip showing the resolved endpoint.
   - Added unit test cases in `modelRouter.test.ts` covering various edge-case URL formats (trailing slashes, bare domains, whitespace, and correct formats).
 - **Real API Streaming Client** (`apiClient.ts`):
-  - Created a robust real-time client implementing OpenAI Server-Sent Events (SSE) stream reader (`data: {...}`).
+  - Created a robust real-time client implementing OpenAI Server-Sent Events (SSE) stream reader.
   - Added support for Ollama line-delimited newline JSON streams.
   - Integrated `AbortController` support to allow cancelling streaming requests mid-generation.
   - Implemented automatic error handling for network timeouts or API errors.
