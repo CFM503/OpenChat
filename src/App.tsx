@@ -325,7 +325,7 @@ export function App() {
           const systemMsg: ChatMessage = {
             id: uid('msg'),
             role: 'system',
-            content: searchContext,
+            content: `Today's date: ${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}.\n\n${searchContext}`,
             timestamp: Date.now(),
           };
           
