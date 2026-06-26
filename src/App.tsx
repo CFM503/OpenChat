@@ -365,7 +365,7 @@ export function App() {
         const toolEvents: ToolEvent[] = [];
         let assistantContent = '';
 
-        await backendClient.sendMessage(injectedMessages, activeModelId, {
+        const sent = await backendClient.sendMessage(injectedMessages, activeModelId, {
           onContent: (text) => {
             assistantContent += text;
             setMessages(prev =>
@@ -419,7 +419,18 @@ export function App() {
             streamAbortRef.current = null;
           },
         });
-      } else if (canMakeRealRequest(activeConfig)) {
+
+        // If WebSocket send failed, fall through to direct/demo
+        if (!sent) {
+          setBackendAvailable(false);
+          // Fall through to next branch
+        } else {
+          // Successfully sent via backend, done
+          return;
+        }
+      }
+
+      if (canMakeRealRequest(activeConfig)) {
         // ── Real API call ──
         streamRealResponse(
           modelRouterRef.current,
@@ -578,9 +589,9 @@ export function App() {
               ))}
             </select>
             <div className="model-indicator">
-              <span className="status-dot status-dot-active" />
+              <span className={`status-dot ${backendAvailable ? 'status-dot-active' : ''}`} />
               <span className="model-label">
-                {models.find(m => m.id === activeModelId)?.provider ?? 'unknown'}
+                {backendAvailable ? 'Agent' : (canMakeRealRequest(modelRouterRef.current.getModel(activeModelId)) ? 'Direct' : 'Demo')}
               </span>
             </div>
           </div>

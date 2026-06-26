@@ -324,6 +324,16 @@ export function ChatPanel({
                 ))}
               </div>
             )}
+            {msg.role === 'assistant' && !msg.content && !msg.thinking && msg.isStreaming && (
+              <div className="message-bubble assistant-thinking">
+                <div className="thinking-dots">
+                  <span className="dot" />
+                  <span className="dot" />
+                  <span className="dot" />
+                </div>
+                <span className="thinking-label">Thinking...</span>
+              </div>
+            )}
             {msg.content && (
               <div className="message-bubble">
                 {renderContent(msg.content)}
@@ -367,7 +377,7 @@ export function ChatPanel({
             <div className="message-info">
               <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
               <span>•</span>
-              <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
               {msg.content && (
                 <>
                   <span>•</span>

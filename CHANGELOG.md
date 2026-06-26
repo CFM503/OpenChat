@@ -4,6 +4,23 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.2] - 2026-06-26
+
+### Added
+- **Image Recognition Support (Backend Agent Mode)**:
+  - `agentLoop.ts` now converts image attachments to OpenAI multimodal content blocks (`image_url`), so images reach the LLM when using the backend gateway.
+  - `providerGateway.ts` Ollama path extracts images from multimodal content blocks into Ollama's native `images` array format (raw base64).
+  - `CompletionParams.messages` type broadened to `Record<string, any>[]` to support multimodal message formats.
+
+### Fixed
+- **UI Feedback on Message Send**:
+  - Added "Thinking..." bouncing dots indicator in empty streaming assistant bubble.
+  - Timestamps now include seconds (`HH:MM:SS`) to distinguish individual messages.
+  - Backend WebSocket errors now properly reset `isStreaming` state and fall through to direct/demo mode.
+  - Connection status indicator in header shows current mode: Agent (green) / Direct / Demo.
+
+---
+
 ## [2.0.0-alpha.1] - 2026-06-26
 
 ### Added

@@ -37,17 +37,45 @@ export class AgentLoop {
     const toolDefs = this.tools.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
-    let llmMessages = messages
+    let llmMessages: Record<string, any>[] = messages
       .filter(m => m.role !== 'tool')
-      .map(m => ({
-        role: m.role,
-        content: m.content,
-        ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: { name: tc.name, arguments: tc.arguments },
-        }))}),
-      }));
+      .map(m => {
+        // Convert image attachments to multimodal content blocks
+        const images = m.attachments?.filter(a => a.type.startsWith('image/')) ?? [];
+        const textAttachments = m.attachments?.filter(a => !a.type.startsWith('image/')) ?? [];
+
+        let content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+
+        if (images.length > 0) {
+          const blocks: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+          let textParts = m.content;
+          for (const ta of textAttachments) {
+            textParts += `\n\n[Attached: ${ta.name}]\n${ta.content}`;
+          }
+          if (textParts.trim()) {
+            blocks.push({ type: 'text', text: textParts });
+          }
+          for (const img of images) {
+            blocks.push({ type: 'image_url', image_url: { url: img.content } });
+          }
+          content = blocks;
+        } else {
+          content = m.content;
+          for (const ta of textAttachments) {
+            content += `\n\n[Attached: ${ta.name}]\n${ta.content}`;
+          }
+        }
+
+        return {
+          role: m.role,
+          content,
+          ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: tc.arguments },
+          }))}),
+        };
+      });
 
     const sessionId = `session_${Date.now()}`;
     const ctx: ToolContext = {

@@ -21,7 +21,7 @@ export interface ToolCallDelta {
 
 export interface CompletionParams {
   modelId?: string;
-  messages: Array<{ role: string; content: string; tool_call_id?: string; tool_calls?: any[] }>;
+  messages: Record<string, any>[];
   tools?: Array<{ type: 'function'; function: any }>;
   signal?: AbortSignal;
 }
@@ -166,9 +166,28 @@ export class ProviderGateway {
     model: ModelConfig,
     params: CompletionParams,
   ): AsyncGenerator<StreamChunk> {
+    // Convert multimodal content blocks to Ollama format (images as raw base64 array)
+    const messages = params.messages.map(m => {
+      if (Array.isArray(m.content)) {
+        const textParts: string[] = [];
+        const images: string[] = [];
+        for (const block of m.content) {
+          if (block.type === 'text' && block.text) {
+            textParts.push(block.text);
+          } else if (block.type === 'image_url' && block.image_url?.url) {
+            const url = block.image_url.url;
+            const idx = url.indexOf(';base64,');
+            images.push(idx >= 0 ? url.slice(idx + 8) : url);
+          }
+        }
+        return { role: m.role, content: textParts.join('\n'), images };
+      }
+      return m;
+    });
+
     const body: Record<string, any> = {
       model: model.model,
-      messages: params.messages,
+      messages,
       stream: true,
       options: {
         num_predict: model.maxTokens,
