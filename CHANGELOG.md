@@ -4,6 +4,13 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.4] - 2026-06-26
+
+### Added
+- **Multi-Provider Web Search**: Users can now choose between Tavily, SerpAPI, Bing Search, and SearXNG (self-hosted) as the search provider. Settings UI updated with provider dropdown and per-provider configuration fields.
+
+---
+
 ## [2.0.0-alpha.3] - 2026-06-26
 
 ### Fixed
