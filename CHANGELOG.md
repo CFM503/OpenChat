@@ -4,6 +4,13 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.3] - 2026-06-26
+
+### Fixed
+- **Web Search Date Accuracy**: Injected current date into web search context so AI outputs the correct year instead of defaulting to training data cutoff.
+
+---
+
 ## [2.0.0-alpha.2] - 2026-06-26
 
 ### Added
