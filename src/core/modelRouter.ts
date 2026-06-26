@@ -38,7 +38,22 @@ export function normalizeEndpoint(url: string): string {
     return normalized + '/chat/completions';
   }
 
-  // Otherwise append full /v1/chat/completions
+  // Check if URL has a path with API version prefix (e.g., /v1beta, /v1alpha, /v1beta/openai)
+  try {
+    const parsed = new URL(normalized);
+    const p = parsed.pathname.replace(/\/+$/, '');
+    if (/^\/v\d+/.test(p)) {
+      return normalized + '/chat/completions';
+    }
+    // Other non-root paths (e.g., Ollama /api/generate) — don't modify
+    if (p !== '' && p !== '/') {
+      return normalized;
+    }
+  } catch {
+    // Not a valid URL, proceed with normalization
+  }
+
+  // Bare domain → append full /v1/chat/completions
   return normalized + '/v1/chat/completions';
 }
 
@@ -162,15 +177,19 @@ export class ModelRouter {
           .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
           .join('');
       }
-      // Always use text descriptions for images — safe for all providers
+
+      // Use multimodal content blocks for images (OpenAI vision format)
       if (images.length > 0) {
-        textContent += images
-          .map(a => {
-            const dataUrl = a.content;
-            const sizeInfo = dataUrl.startsWith('data:') ? ` (${Math.round((dataUrl.length * 3) / 4 / 1024)}KB)` : '';
-            return `\n\n[Attached image: ${a.name}${sizeInfo} — ${a.type}, ${a.size} bytes. Image content cannot be displayed as text.]`;
-          })
-          .join('');
+        const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+          { type: 'text', text: textContent },
+        ];
+        for (const img of images) {
+          parts.push({
+            type: 'image_url',
+            image_url: { url: img.content },
+          });
+        }
+        return { role: m.role, content: parts };
       }
 
       return {
@@ -191,14 +210,25 @@ export class ModelRouter {
           .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
           .join('');
       }
-      // Text descriptions for images — safe fallback
+
+      // Ollama uses top-level "images" array with raw base64
       if (images.length > 0) {
-        textContent += images
+        const base64Images = images
           .map(a => {
-            const sizeInfo = a.content.startsWith('data:') ? ` (${Math.round((a.content.length * 3) / 4 / 1024)}KB)` : '';
-            return `\n\n[Attached image: ${a.name}${sizeInfo} — ${a.type}, ${a.size} bytes. Image content cannot be displayed as text.]`;
+            const dataUrl = a.content;
+            // Strip data:image/xxx;base64, prefix
+            if (dataUrl.startsWith('data:')) {
+              return dataUrl.split(',')[1];
+            }
+            return dataUrl;
           })
-          .join('');
+          .filter(Boolean);
+
+        return {
+          role: m.role,
+          content: textContent,
+          ...(base64Images.length > 0 && { images: base64Images }),
+        };
       }
 
       return {

@@ -53,28 +53,39 @@ export class AgentLoop {
         // Always use plain text format — safe for all providers
         let content: string = m.content;
 
+        // Build content array for multimodal support
+        const textParts: string[] = [content];
+
         // Append text file contents
         for (const ta of textAttachments) {
-          content += `\n\n[Attached file: ${ta.name}]\n${ta.content}`;
+          textParts.push(`\n\n[Attached file: ${ta.name}]\n${ta.content}`);
         }
 
-        // Append image descriptions (text-only, no multimodal blocks)
-        for (const img of images) {
-          // Extract base64 data for size info
-          const dataUrl = img.content;
-          const isBase64 = dataUrl.startsWith('data:');
-          const sizeInfo = isBase64 ? ` (${Math.round((dataUrl.length * 3) / 4 / 1024)}KB base64)` : '';
-          content += `\n\n[Attached image: ${img.name}${sizeInfo}]\n`;
-          if (isBase64) {
-            content += `[Image data: ${dataUrl.substring(0, 50)}... — ${img.type} format, ${img.size} bytes. The image content cannot be displayed as text.]`;
-          } else {
-            content += `[Image URL: ${dataUrl}]`;
+        // If images exist, use multimodal content array (OpenAI vision format)
+        if (images.length > 0) {
+          const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+            { type: 'text', text: textParts.join('') },
+          ];
+          for (const img of images) {
+            parts.push({
+              type: 'image_url',
+              image_url: { url: img.content },
+            });
           }
+          return {
+            role: m.role,
+            content: parts,
+            ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
+              id: tc.id,
+              type: 'function',
+              function: { name: tc.name, arguments: tc.arguments },
+            }))}),
+          };
         }
 
         return {
           role: m.role,
-          content,
+          content: textParts.join(''),
           ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
             id: tc.id,
             type: 'function',

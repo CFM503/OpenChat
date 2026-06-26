@@ -193,6 +193,13 @@ describe('normalizeEndpoint', () => {
     expect(normalizeEndpoint('https://openrouter.ai/api/v1')).toBe(
       'https://openrouter.ai/api/v1/chat/completions'
     );
+    // Google Gemini OpenAI-compatible endpoint
+    expect(normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta/openai')).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    );
+    expect(normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta')).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/chat/completions'
+    );
   });
 
   it('should trim whitespace', () => {
@@ -242,7 +249,7 @@ describe('ModelRouter Attachments Serialization', () => {
     expect(body.messages[0].content).toContain('print("hello world")');
   });
 
-  it('should serialize image attachments into content blocks for OpenAI', () => {
+  it('should serialize image attachments into multimodal content blocks for OpenAI', () => {
     const router = new ModelRouter([]);
     router.addModel({
       id: 'openai-test',
@@ -277,11 +284,12 @@ describe('ModelRouter Attachments Serialization', () => {
     expect(req).not.toBeNull();
     const body = JSON.parse((req!.init.body as string));
     expect(body.messages[0].role).toBe('user');
-    // Images are now text-only descriptions (safe for all providers)
-    expect(typeof body.messages[0].content).toBe('string');
-    expect(body.messages[0].content).toContain('Check this image.');
-    expect(body.messages[0].content).toContain('[Attached image: photo.png');
-    expect(body.messages[0].content).toContain('image/png');
+    // Images use multimodal content array (OpenAI vision format)
+    expect(Array.isArray(body.messages[0].content)).toBe(true);
+    expect(body.messages[0].content[0].type).toBe('text');
+    expect(body.messages[0].content[0].text).toContain('Check this image.');
+    expect(body.messages[0].content[1].type).toBe('image_url');
+    expect(body.messages[0].content[1].image_url.url).toContain('data:image/png;base64,');
   });
 
   it('should serialize image attachments into top-level images array for Ollama', () => {
@@ -318,9 +326,11 @@ describe('ModelRouter Attachments Serialization', () => {
     expect(req).not.toBeNull();
     const body = JSON.parse((req!.init.body as string));
     expect(body.messages[0].role).toBe('user');
-    // Images are now text-only descriptions
-    expect(body.messages[0].content).toContain('Look at this.');
-    expect(body.messages[0].content).toContain('[Attached image: photo.png');
-    expect(body.messages[0].images).toBeUndefined();
+    // Ollama uses top-level images array with raw base64
+    expect(body.messages[0].content).toBe('Look at this.');
+    expect(Array.isArray(body.messages[0].images)).toBe(true);
+    expect(body.messages[0].images[0]).toContain('iVBORw0KGgo');
+    // Should not have data: prefix
+    expect(body.messages[0].images[0]).not.toContain('data:');
   });
 });
