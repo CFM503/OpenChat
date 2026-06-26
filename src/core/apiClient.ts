@@ -104,6 +104,8 @@ async function readOpenAIStream(
   onError: (error: Error) => void
 ): Promise<void> {
   let buffer = '';
+  let doneCalled = false;  // H-8: Guard against double onDone
+  const safeDone = () => { if (!doneCalled) { doneCalled = true; onDone(); } };
 
   try {
     while (true) {
@@ -121,7 +123,7 @@ async function readOpenAIStream(
 
         if (trimmed === '') continue;
         if (trimmed === 'data: [DONE]') {
-          onDone();
+          safeDone();
           return;
         }
 
@@ -145,7 +147,7 @@ async function readOpenAIStream(
       }
     }
 
-    onDone();
+    safeDone();
   } catch (err: unknown) {
     onError(err instanceof Error ? err : new Error(String(err)));
   }
@@ -161,6 +163,8 @@ async function readOllamaStream(
   onError: (error: Error) => void
 ): Promise<void> {
   let buffer = '';
+  let doneCalled = false;  // H-8: Guard against double onDone
+  const safeDone = () => { if (!doneCalled) { doneCalled = true; onDone(); } };
 
   try {
     while (true) {
@@ -185,7 +189,7 @@ async function readOllamaStream(
           }
           // Check if stream is done
           if (parsed.done === true) {
-            onDone();
+            safeDone();
             return;
           }
         } catch {
@@ -194,7 +198,7 @@ async function readOllamaStream(
       }
     }
 
-    onDone();
+    safeDone();
   } catch (err: unknown) {
     onError(err instanceof Error ? err : new Error(String(err)));
   }

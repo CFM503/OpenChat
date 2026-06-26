@@ -28,12 +28,17 @@ export interface StreamCallbacks {
   onError: (message: string) => void;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_DELAY = 1000;  // 1 second
+
 export class BackendClient {
   private ws: WebSocket | null = null;
   private url: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
   private callbacks: StreamCallbacks | null = null;
+  private reconnectAttempts = 0;
+  private connectingPromise: Promise<boolean> | null = null;  // H-12: Guard against concurrent connects
 
   constructor(port: number = 3001) {
     this.url = `ws://localhost:${port}/ws`;
@@ -70,19 +75,24 @@ export class BackendClient {
 
   /**
    * Connect to the backend WebSocket.
+   * H-12: Guards against concurrent connect() calls.
    */
   connect(): Promise<boolean> {
-    return new Promise((resolve) => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        resolve(true);
-        return;
-      }
+    // H-12: If already connecting, return existing promise
+    if (this.connectingPromise) return this.connectingPromise;
 
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve(true);
+    }
+
+    this.connectingPromise = new Promise((resolve) => {
       try {
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
           this.connected = true;
+          this.reconnectAttempts = 0;  // Reset on successful connection
+          this.connectingPromise = null;
           resolve(true);
         };
 
@@ -92,16 +102,21 @@ export class BackendClient {
 
         this.ws.onclose = () => {
           this.connected = false;
+          this.connectingPromise = null;
           this.scheduleReconnect();
         };
 
         this.ws.onerror = () => {
+          this.connectingPromise = null;
           resolve(false);
         };
       } catch {
+        this.connectingPromise = null;
         resolve(false);
       }
     });
+
+    return this.connectingPromise;
   }
 
   private handleMessage(data: string): void {
@@ -183,23 +198,37 @@ export class BackendClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.reconnectAttempts = MAX_RECONNECT_ATTEMPTS;  // Prevent further reconnects
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.connected = false;
+    this.connectingPromise = null;
   }
 
   isConnected(): boolean {
     return this.connected;
   }
 
+  /**
+   * H-9: Exponential backoff with max retry limit.
+   */
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn(`[ws] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`);
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s
+    const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts), 30_000);
+    this.reconnectAttempts++;
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 5000);
+    }, delay);
   }
 }
 

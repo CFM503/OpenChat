@@ -277,11 +277,11 @@ describe('ModelRouter Attachments Serialization', () => {
     expect(req).not.toBeNull();
     const body = JSON.parse((req!.init.body as string));
     expect(body.messages[0].role).toBe('user');
-    expect(Array.isArray(body.messages[0].content)).toBe(true);
-    expect(body.messages[0].content[0].type).toBe('text');
-    expect(body.messages[0].content[0].text).toContain('Check this image.');
-    expect(body.messages[0].content[1].type).toBe('image_url');
-    expect(body.messages[0].content[1].image_url.url).toContain('data:image/png;base64,');
+    // Images are now text-only descriptions (safe for all providers)
+    expect(typeof body.messages[0].content).toBe('string');
+    expect(body.messages[0].content).toContain('Check this image.');
+    expect(body.messages[0].content).toContain('[Attached image: photo.png');
+    expect(body.messages[0].content).toContain('image/png');
   });
 
   it('should serialize image attachments into top-level images array for Ollama', () => {
@@ -318,8 +318,9 @@ describe('ModelRouter Attachments Serialization', () => {
     expect(req).not.toBeNull();
     const body = JSON.parse((req!.init.body as string));
     expect(body.messages[0].role).toBe('user');
-    expect(body.messages[0].content).toBe('Look at this.');
-    expect(Array.isArray(body.messages[0].images)).toBe(true);
-    expect(body.messages[0].images[0]).toBe('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+    // Images are now text-only descriptions
+    expect(body.messages[0].content).toContain('Look at this.');
+    expect(body.messages[0].content).toContain('[Attached image: photo.png');
+    expect(body.messages[0].images).toBeUndefined();
   });
 });

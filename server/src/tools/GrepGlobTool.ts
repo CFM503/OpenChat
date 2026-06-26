@@ -2,7 +2,8 @@
 // GrepTool — Content search using ripgrep or grep fallback
 // ============================================================================
 
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
+import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
 
@@ -12,6 +13,20 @@ interface GrepInput {
   glob?: string;
   case_insensitive?: boolean;
   max_results?: number;
+}
+
+/** Resolve search path and ensure it stays within workspace boundary (H-4). */
+function safeSearchPath(inputPath: string | undefined, workingDirectory: string): string | null {
+  if (!inputPath) return workingDirectory;
+  const absPath = path.isAbsolute(inputPath)
+    ? inputPath
+    : path.resolve(workingDirectory, inputPath);
+  const normalized = path.normalize(absPath);
+  const workspaceNorm = path.normalize(workingDirectory);
+  if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) {
+    return normalized;
+  }
+  return null;
 }
 
 export const GrepTool: ToolDefinition<GrepInput> = {
@@ -34,11 +49,18 @@ export const GrepTool: ToolDefinition<GrepInput> = {
 
   async execute(input: GrepInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
-    const cwd = input.path
-      ? input.path.startsWith('/')
-        ? input.path
-        : `${ctx.workingDirectory}/${input.path}`
-      : ctx.workingDirectory;
+
+    // H-4: Validate path stays within workspace
+    const cwd = safeSearchPath(input.path, ctx.workingDirectory);
+    if (!cwd) {
+      return {
+        success: false,
+        output: '',
+        error: `Search path escapes workspace boundary: ${input.path}`,
+        duration: 0,
+      };
+    }
+
     const maxResults = input.max_results ?? 100;
 
     const args: string[] = ['--line-number', '--with-filename'];
@@ -47,8 +69,12 @@ export const GrepTool: ToolDefinition<GrepInput> = {
     args.push(input.pattern, '.');
 
     return new Promise<ToolResult>((resolve) => {
+      // H-13: Track the active process for abort handling
+      let activeProc: ChildProcess | null = null;
+
       // Try rg (ripgrep) first, fall back to grep
       const tryRg = spawn('rg', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      activeProc = tryRg;
 
       let stdout = '';
       let stderr = '';
@@ -63,6 +89,7 @@ export const GrepTool: ToolDefinition<GrepInput> = {
         grepArgs.push(input.pattern, '.');
 
         const grep = spawn('grep', grepArgs, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+        activeProc = grep;  // H-13: Update active process reference
         let gOut = '';
         let gErr = '';
         grep.stdout.on('data', (d: Buffer) => { gOut += d.toString(); });
@@ -92,8 +119,11 @@ export const GrepTool: ToolDefinition<GrepInput> = {
         });
       });
 
+      // H-13: Abort signal kills whichever process is currently active
       ctx.abortSignal.addEventListener('abort', () => {
-        tryRg.kill('SIGTERM');
+        if (activeProc) {
+          activeProc.kill('SIGTERM');
+        }
       });
     });
   },
@@ -127,14 +157,19 @@ export const GlobTool: ToolDefinition<GlobInput> = {
 
   async execute(input: GlobInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
-    const cwd = input.path
-      ? input.path.startsWith('/')
-        ? input.path
-        : `${ctx.workingDirectory}/${input.path}`
-      : ctx.workingDirectory;
+
+    // H-4: Validate path stays within workspace
+    const cwd = safeSearchPath(input.path, ctx.workingDirectory);
+    if (!cwd) {
+      return {
+        success: false,
+        output: '',
+        error: `Search path escapes workspace boundary: ${input.path}`,
+        duration: 0,
+      };
+    }
 
     // Use Node's fs to do simple glob matching
-    // For production, consider using glob package
     const pattern = input.pattern;
     const results: string[] = [];
 
@@ -158,8 +193,9 @@ export const GlobTool: ToolDefinition<GlobInput> = {
             }
           }
         }
-      } catch {
-        // Permission errors etc — skip silently
+      } catch (err) {
+        // L-9: Log errors instead of silently swallowing
+        console.warn(`[glob] Error reading ${dir}:`, err instanceof Error ? err.message : err);
       }
     }
 
@@ -178,18 +214,14 @@ export const GlobTool: ToolDefinition<GlobInput> = {
 
 /**
  * Simple glob matching (supports **, *, ?, {a,b}).
- * Not exhaustive but covers common patterns.
  */
 function matchesGlob(filepath: string, pattern: string): boolean {
-  // Normalize separators
   const fp = filepath.replace(/\\/g, '/');
   const pat = pattern.replace(/\\/g, '/');
 
-  // Convert glob to regex
   let regexStr = pat
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (except * ? { })
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\{([^}]+)\}/g, (_, group) => {
-      // {a,b,c} → (a|b|c)
       return '(' + group.split(',').join('|') + ')';
     })
     .replace(/\*\*/g, '{{GLOBSTAR}}')

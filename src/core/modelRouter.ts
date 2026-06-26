@@ -162,25 +162,21 @@ export class ModelRouter {
           .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
           .join('');
       }
-
+      // Always use text descriptions for images — safe for all providers
       if (images.length > 0) {
-        const contentBlocks: any[] = [{ type: 'text', text: textContent }];
-        for (const img of images) {
-          contentBlocks.push({
-            type: 'image_url',
-            image_url: { url: img.content }
-          });
-        }
-        return {
-          role: m.role,
-          content: contentBlocks
-        };
-      } else {
-        return {
-          role: m.role,
-          content: textContent
-        };
+        textContent += images
+          .map(a => {
+            const dataUrl = a.content;
+            const sizeInfo = dataUrl.startsWith('data:') ? ` (${Math.round((dataUrl.length * 3) / 4 / 1024)}KB)` : '';
+            return `\n\n[Attached image: ${a.name}${sizeInfo} — ${a.type}, ${a.size} bytes. Image content cannot be displayed as text.]`;
+          })
+          .join('');
       }
+
+      return {
+        role: m.role,
+        content: textContent,
+      };
     });
   }
 
@@ -195,20 +191,20 @@ export class ModelRouter {
           .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
           .join('');
       }
+      // Text descriptions for images — safe fallback
+      if (images.length > 0) {
+        textContent += images
+          .map(a => {
+            const sizeInfo = a.content.startsWith('data:') ? ` (${Math.round((a.content.length * 3) / 4 / 1024)}KB)` : '';
+            return `\n\n[Attached image: ${a.name}${sizeInfo} — ${a.type}, ${a.size} bytes. Image content cannot be displayed as text.]`;
+          })
+          .join('');
+      }
 
-      const messageObj: any = {
+      return {
         role: m.role,
         content: textContent,
       };
-
-      if (images.length > 0) {
-        messageObj.images = images.map(img => {
-          const parts = img.content.split(';base64,');
-          return parts.length > 1 ? parts[1] : img.content;
-        });
-      }
-
-      return messageObj;
     });
   }
 

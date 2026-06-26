@@ -37,32 +37,38 @@ export class AgentLoop {
     const toolDefs = this.tools.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
+    // Always convert images to text descriptions — the LLM provider may not support
+    // multimodal image_url blocks. If the model supports vision, the text description
+    // serves as metadata; if not, it's the only representation.
     let llmMessages: Record<string, any>[] = messages
       .filter(m => m.role !== 'tool')
       .map(m => {
-        // Convert image attachments to multimodal content blocks
         const images = m.attachments?.filter(a => a.type.startsWith('image/')) ?? [];
         const textAttachments = m.attachments?.filter(a => !a.type.startsWith('image/')) ?? [];
 
-        let content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+        if (m.attachments?.length) {
+          console.log(`[agentLoop] Message ${m.id} has ${m.attachments.length} attachment(s): ${m.attachments.map(a => `${a.name} (${a.type}, ${a.size}B)`).join(', ')}`);
+        }
 
-        if (images.length > 0) {
-          const blocks: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-          let textParts = m.content;
-          for (const ta of textAttachments) {
-            textParts += `\n\n[Attached: ${ta.name}]\n${ta.content}`;
-          }
-          if (textParts.trim()) {
-            blocks.push({ type: 'text', text: textParts });
-          }
-          for (const img of images) {
-            blocks.push({ type: 'image_url', image_url: { url: img.content } });
-          }
-          content = blocks;
-        } else {
-          content = m.content;
-          for (const ta of textAttachments) {
-            content += `\n\n[Attached: ${ta.name}]\n${ta.content}`;
+        // Always use plain text format — safe for all providers
+        let content: string = m.content;
+
+        // Append text file contents
+        for (const ta of textAttachments) {
+          content += `\n\n[Attached file: ${ta.name}]\n${ta.content}`;
+        }
+
+        // Append image descriptions (text-only, no multimodal blocks)
+        for (const img of images) {
+          // Extract base64 data for size info
+          const dataUrl = img.content;
+          const isBase64 = dataUrl.startsWith('data:');
+          const sizeInfo = isBase64 ? ` (${Math.round((dataUrl.length * 3) / 4 / 1024)}KB base64)` : '';
+          content += `\n\n[Attached image: ${img.name}${sizeInfo}]\n`;
+          if (isBase64) {
+            content += `[Image data: ${dataUrl.substring(0, 50)}... — ${img.type} format, ${img.size} bytes. The image content cannot be displayed as text.]`;
+          } else {
+            content += `[Image URL: ${dataUrl}]`;
           }
         }
 
@@ -77,7 +83,7 @@ export class AgentLoop {
         };
       });
 
-    const sessionId = `session_${Date.now()}`;
+    const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,
       sessionId,
@@ -182,7 +188,7 @@ export class AgentLoop {
           input: tc.arguments,
         });
 
-        // Execute
+        // Execute — H-7: wrap in try/catch to prevent unhandled crashes
         let input: unknown;
         try {
           input = JSON.parse(tc.arguments);
@@ -190,7 +196,17 @@ export class AgentLoop {
           input = {};
         }
 
-        const result = await tool.execute(input as any, ctx);
+        let result: { success: boolean; output: string; error?: string; duration: number };
+        try {
+          result = await tool.execute(input as any, ctx);
+        } catch (execErr: any) {
+          result = {
+            success: false,
+            output: '',
+            error: `Tool execution failed: ${execErr.message}`,
+            duration: 0,
+          };
+        }
         const toolResult: ToolCallResult = {
           toolCallId: tc.id,
           name: tc.name,

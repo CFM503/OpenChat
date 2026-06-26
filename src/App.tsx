@@ -76,17 +76,22 @@ export function App() {
   ]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [models, setModels] = useState<ModelConfig[]>(() => {
-    const saved = localStorage.getItem('openchat_models');
-    return saved ? JSON.parse(saved) : [...DEFAULT_MODELS];
+    try {  // M-6: Safe JSON.parse
+      const saved = localStorage.getItem('openchat_models');
+      return saved ? JSON.parse(saved) : [...DEFAULT_MODELS];
+    } catch { return [...DEFAULT_MODELS]; }
   });
   const [activeModelId, setActiveModelId] = useState<string>(() => {
-    const saved = localStorage.getItem('openchat_active_model_id');
-    const savedModels = localStorage.getItem('openchat_models');
-    const modelList = savedModels ? JSON.parse(savedModels) : DEFAULT_MODELS;
-    if (saved && modelList.some((m: ModelConfig) => m.id === saved)) {
-      return saved;
-    }
-    return modelList.length > 0 ? modelList[0].id : '';
+    try {  // M-6: Safe JSON.parse
+      const saved = localStorage.getItem('openchat_active_model_id');
+      const savedModels = localStorage.getItem('openchat_models');
+      let modelList: ModelConfig[];
+      try { modelList = savedModels ? JSON.parse(savedModels) : DEFAULT_MODELS; } catch { modelList = DEFAULT_MODELS; }
+      if (saved && modelList.some((m: ModelConfig) => m.id === saved)) {
+        return saved;
+      }
+      return modelList.length > 0 ? modelList[0].id : '';
+    } catch { return DEFAULT_MODELS[0]?.id ?? ''; }
   });
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>(DEFAULT_FILES);
@@ -108,6 +113,9 @@ export function App() {
   const [searchBaseUrl, setSearchBaseUrl] = useState(() => {
     return localStorage.getItem('openchat_search_base_url') || 'http://localhost:8888';
   });
+  const [proxyUrl, setProxyUrl] = useState(() => {
+    return localStorage.getItem('openchat_proxy_url') || '';
+  });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState(false);
 
@@ -115,6 +123,7 @@ export function App() {
   const modelRouterRef = useRef(new ModelRouter(models));
   const taskManagerRef = useRef(new TaskManager());
   const streamAbortRef = useRef<AbortController | null>(null);
+  const backendAvailableRef = useRef(false);  // H-11: Ref for stale closure fix
 
   // --- Effects ---
   // Check backend availability on mount
@@ -122,10 +131,15 @@ export function App() {
     backendClient.isAvailable().then(async (available) => {
       if (available) {
         setBackendAvailable(true);
+        backendAvailableRef.current = true;  // H-11
         await backendClient.connect();
       }
     });
-    return () => { backendClient.disconnect(); };
+    // M-7: Cleanup - abort streams and disconnect on unmount
+    return () => {
+      streamAbortRef.current?.abort();
+      backendClient.disconnect();
+    };
   }, []);
 
   // Load config on mount
@@ -166,6 +180,9 @@ export function App() {
             if (config.searchBaseUrl !== undefined) {
               setSearchBaseUrl(config.searchBaseUrl);
             }
+            if (config.proxyUrl !== undefined) {
+              setProxyUrl(config.proxyUrl);
+            }
           } else if (localModels) {
             // Backend empty but localStorage has data — sync localStorage → backend
             try {
@@ -204,6 +221,7 @@ export function App() {
     localStorage.setItem('openchat_search_provider', searchProvider);
     localStorage.setItem('openchat_search_api_key', searchApiKey);
     localStorage.setItem('openchat_search_base_url', searchBaseUrl);
+    localStorage.setItem('openchat_proxy_url', proxyUrl);
 
     const timer = setTimeout(async () => {
       try {
@@ -219,6 +237,7 @@ export function App() {
             searchProvider,
             searchApiKey,
             searchBaseUrl,
+            proxyUrl,
           }),
         });
       } catch (err) {
@@ -227,7 +246,7 @@ export function App() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, isConfigLoaded]);
+  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, isConfigLoaded]);
 
   const hasSearchKey = searchProvider === 'searxng' ? !!searchBaseUrl.trim() : !!searchApiKey.trim();
 
@@ -382,16 +401,20 @@ export function App() {
                 ? {
                     ...m,
                     content: accumulatedContent,
+                    isStreaming: false,
                   }
                 : m
             )
           );
+          setIsStreaming(false);  // M-4: Stop streaming state
+          streamAbortRef.current = null;
+          return;  // M-4: Prevent falling through to API call
         }
       }
 
       // Decide: backend gateway, real API, or simulated demo
       const activeConfig = modelRouterRef.current.getModel(activeModelId);
-      if (backendAvailable && backendClient.isConnected()) {
+      if (backendAvailableRef.current && backendClient.isConnected()) {  // H-11: Use ref for fresh value
         // ── Backend gateway (with tool execution) ──
         const toolEvents: ToolEvent[] = [];
         let assistantContent = '';
@@ -454,6 +477,7 @@ export function App() {
         // If WebSocket send failed, fall through to direct/demo
         if (!sent) {
           setBackendAvailable(false);
+          backendAvailableRef.current = false;  // H-11: Keep ref in sync
           // Fall through to next branch
         } else {
           // Successfully sent via backend, done
@@ -491,13 +515,13 @@ export function App() {
 
   // --- Stop streaming handler ---
   const handleStopStreaming = useCallback(() => {
-    if (backendAvailable) {
+    if (backendAvailableRef.current) {  // H-11: Use ref
       backendClient.abort();
     }
     if (streamAbortRef.current) {
       streamAbortRef.current.abort();
     }
-  }, [backendAvailable]);
+  }, []);  // H-11: No dependency on backendAvailable, using ref
 
   // --- Model handlers ---
   const handleAddModel = useCallback((config: ModelConfig) => {
@@ -734,6 +758,8 @@ export function App() {
               onUpdateSearchProvider={setSearchProvider}
               onUpdateSearchApiKey={setSearchApiKey}
               onUpdateSearchBaseUrl={setSearchBaseUrl}
+              proxyUrl={proxyUrl}
+              onUpdateProxyUrl={setProxyUrl}
             />
           </div>
         </div>

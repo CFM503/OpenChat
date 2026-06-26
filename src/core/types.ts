@@ -137,6 +137,7 @@ export interface AppState {
   searchProvider?: SearchProvider;
   searchApiKey?: string;
   searchBaseUrl?: string;
+  proxyUrl?: string;
   /** @deprecated Use searchApiKey */
   tavilyApiKey?: string;
 }

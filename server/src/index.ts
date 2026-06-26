@@ -6,10 +6,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createServer } from 'http';
-import path from 'path';
 
-import { ConfigManager } from './configManager.js';
+import { ConfigManager, validateConfig, sanitizeError } from './configManager.js';
 import { ProviderGateway } from './providerGateway.js';
 import { AgentLoop } from './agentLoop.js';
 import { SessionManager } from './sessionManager.js';
@@ -46,16 +44,29 @@ const agentLoop = new AgentLoop(providers, tools, WORKING_DIRECTORY);
 
 const app = new Hono();
 
-app.use('/*', cors());
+// H-1: Restrict CORS to localhost origins only
+app.use('/*', cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+}));
 
 // Config endpoints (compatible with existing Vite plugin)
+// GET returns full config — CORS restriction (localhost-only) is the protection layer.
+// Do NOT mask API keys here: the frontend needs real keys for direct API mode,
+// and masked values ("***") would corrupt the config on round-trip save.
 app.get('/api/config', (c) => {
   return c.json(config.load());
 });
 
 app.post('/api/config', async (c) => {
   const body = await c.req.json();
-  config.save(body);
+  // C-3: Validate config before writing
+  const error = validateConfig(body);
+  if (error) {
+    return c.json({ error }, 400);
+  }
+  // Merge with existing config to preserve API keys not included in the update.
+  // This prevents accidental key loss when the frontend sends a partial config.
+  config.saveWithMerge(body);
   return c.json({ success: true });
 });
 
@@ -158,9 +169,10 @@ wss.on('connection', (ws: WebSocket) => {
           });
         } catch (err: any) {
           if (ws.readyState === WebSocket.OPEN) {
+            // M-1: Sanitize error messages before sending to client
             ws.send(JSON.stringify({
               type: 'error',
-              message: err.message,
+              message: sanitizeError(err),
             } satisfies ServerMessage));
             ws.send(JSON.stringify({ type: 'done' } satisfies ServerMessage));
           }
@@ -191,5 +203,19 @@ wss.on('connection', (ws: WebSocket) => {
     }
   });
 });
+
+// L-3: Graceful shutdown
+function shutdown() {
+  console.log('\n  🛑 Shutting down...');
+  wss.clients.forEach(ws => ws.close());
+  httpServer.close(() => {
+    console.log('  ✅ Server closed');
+    process.exit(0);
+  });
+  // Force exit after 5s
+  setTimeout(() => process.exit(1), 5000);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 export { app, httpServer, wss };

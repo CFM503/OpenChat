@@ -9,16 +9,41 @@ import type { ToolResult } from '../types.js';
 
 /**
  * Resolves a file path and ensures it stays within the workspace.
- * Returns null if the path escapes the workspace.
+ * H-10: Fixes symlink escape and prefix matching boundary issues.
  */
-function safePath(filePath: string, workspace: string): string | null {
+async function safePath(filePath: string, workspace: string): Promise<string | null> {
   const absPath = path.isAbsolute(filePath)
     ? filePath
     : path.resolve(workspace, filePath);
   const normalized = path.normalize(absPath);
-  if (!normalized.startsWith(path.normalize(workspace))) {
+  const workspaceNorm = path.normalize(workspace);
+
+  // Fix prefix matching: require path separator after workspace prefix
+  if (normalized !== workspaceNorm && !normalized.startsWith(workspaceNorm + path.sep)) {
     return null;
   }
+
+  // Resolve symlinks to prevent escape via symbolic links
+  try {
+    const realPath = await fs.realpath(absPath);
+    const realNormalized = path.normalize(realPath);
+    if (realNormalized !== workspaceNorm && !realNormalized.startsWith(workspaceNorm + path.sep)) {
+      return null;  // Symlink points outside workspace
+    }
+  } catch {
+    // File doesn't yet — check parent directory for write operations
+    const parentDir = path.dirname(absPath);
+    try {
+      const realParent = await fs.realpath(parentDir);
+      const realParentNorm = path.normalize(realParent);
+      if (realParentNorm !== workspaceNorm && !realParentNorm.startsWith(workspaceNorm + path.sep)) {
+        return null;
+      }
+    } catch {
+      return null;  // Parent doesn't exist or can't be resolved
+    }
+  }
+
   return normalized;
 }
 
@@ -48,7 +73,7 @@ export const FileReadTool: ToolDefinition<FileReadInput> = {
 
   async execute(input: FileReadInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
-    const absPath = safePath(input.path, ctx.workingDirectory);
+    const absPath = await safePath(input.path, ctx.workingDirectory);
 
     if (!absPath) {
       return { success: false, output: '', error: 'Path escapes workspace boundary', duration: 0 };
@@ -106,7 +131,7 @@ export const FileWriteTool: ToolDefinition<FileWriteInput> = {
 
   async execute(input: FileWriteInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
-    const absPath = safePath(input.path, ctx.workingDirectory);
+    const absPath = await safePath(input.path, ctx.workingDirectory);
 
     if (!absPath) {
       return { success: false, output: '', error: 'Path escapes workspace boundary', duration: 0 };
@@ -155,7 +180,7 @@ export const FileEditTool: ToolDefinition<FileEditInput> = {
 
   async execute(input: FileEditInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
-    const absPath = safePath(input.path, ctx.workingDirectory);
+    const absPath = await safePath(input.path, ctx.workingDirectory);
 
     if (!absPath) {
       return { success: false, output: '', error: 'Path escapes workspace boundary', duration: 0 };

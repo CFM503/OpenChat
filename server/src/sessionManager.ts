@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import type { ChatMessage } from './types.js';
 
 export interface Session {
@@ -13,6 +14,11 @@ export interface Session {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+}
+
+/** Validate session ID to prevent path traversal (C-4). */
+function isValidSessionId(id: string): boolean {
+  return /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
 export class SessionManager {
@@ -29,8 +35,18 @@ export class SessionManager {
     }
   }
 
+  /** Resolve session file path safely, preventing path traversal. */
+  private safePath(id: string): string | null {
+    if (!isValidSessionId(id)) return null;
+    const filePath = path.resolve(this.sessionsDir, `${id}.json`);
+    if (!filePath.startsWith(this.sessionsDir + path.sep) && filePath !== path.join(this.sessionsDir, `${id}.json`)) {
+      return null;
+    }
+    return filePath;
+  }
+
   create(title?: string): Session {
-    const id = `ses_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = `ses_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const now = Date.now();
     const session: Session = {
       id,
@@ -44,7 +60,8 @@ export class SessionManager {
   }
 
   get(id: string): Session | null {
-    const filePath = path.join(this.sessionsDir, `${id}.json`);
+    const filePath = this.safePath(id);
+    if (!filePath) return null;
     try {
       if (fs.existsSync(filePath)) {
         return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -57,8 +74,13 @@ export class SessionManager {
 
   save(session: Session): void {
     session.updatedAt = Date.now();
-    const filePath = path.join(this.sessionsDir, `${session.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(session, null, 2), 'utf-8');
+    const filePath = this.safePath(session.id);
+    if (!filePath) return;
+
+    // Atomic write (C-5)
+    const tmpPath = filePath + `.tmp.${process.pid}`;
+    fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   }
 
   update(id: string, messages: ChatMessage[]): void {
@@ -89,7 +111,8 @@ export class SessionManager {
   }
 
   delete(id: string): boolean {
-    const filePath = path.join(this.sessionsDir, `${id}.json`);
+    const filePath = this.safePath(id);
+    if (!filePath) return false;
     try {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);

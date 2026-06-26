@@ -3,6 +3,7 @@
 // Supports OpenAI-compatible, Ollama, and custom endpoints
 // ============================================================================
 
+import { ProxyAgent } from 'undici';
 import type { ConfigManager, ModelConfig } from './configManager.js';
 
 export interface StreamChunk {
@@ -28,9 +29,30 @@ export interface CompletionParams {
 
 export class ProviderGateway {
   private config: ConfigManager;
+  private cachedProxyUrl: string | undefined;
+  private proxyAgent: ProxyAgent | undefined;
 
   constructor(config: ConfigManager) {
     this.config = config;
+  }
+
+  /**
+   * Get a ProxyAgent if proxyUrl is configured. Recreates the agent when the URL changes.
+   */
+  private getProxyDispatcher(): ProxyAgent | undefined {
+    const cfg = this.config.load();
+    const url = cfg.proxyUrl?.trim();
+    if (!url) {
+      this.proxyAgent = undefined;
+      this.cachedProxyUrl = undefined;
+      return undefined;
+    }
+    if (url !== this.cachedProxyUrl) {
+      this.proxyAgent = new ProxyAgent(url);
+      this.cachedProxyUrl = url;
+      console.log(`[proxy] Using proxy: ${url}`);
+    }
+    return this.proxyAgent;
   }
 
   /**
@@ -102,11 +124,14 @@ export class ProviderGateway {
       headers,
       body: JSON.stringify(body),
       signal: params.signal,
-    });
+      ...(this.getProxyDispatcher() && { dispatcher: this.getProxyDispatcher() }),
+    } as any);
 
     if (!resp.ok) {
       const errBody = await resp.text();
-      throw new Error(`Provider error (${resp.status}): ${errBody}`);
+      // M-1: Sanitize API keys from error messages
+      const sanitized = errBody.replace(/sk-[a-zA-Z0-9_-]{20,}/g, 'sk-***');
+      throw new Error(`Provider error (${resp.status}): ${sanitized}`);
     }
 
     if (!resp.body) {
@@ -153,7 +178,8 @@ export class ProviderGateway {
               yield { type: 'content', content: '', finishReason };
             }
           } catch {
-            // Skip malformed JSON
+            // M-2: Log malformed JSON instead of silently swallowing
+            console.warn('[provider] Skipping malformed SSE JSON:', trimmed.slice(0, 100));
           }
         }
       }
@@ -200,7 +226,8 @@ export class ProviderGateway {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: params.signal,
-    });
+      ...(this.getProxyDispatcher() && { dispatcher: this.getProxyDispatcher() }),
+    } as any);
 
     if (!resp.ok) {
       throw new Error(`Ollama error (${resp.status}): ${await resp.text()}`);
@@ -237,7 +264,8 @@ export class ProviderGateway {
               yield { type: 'content', content: '', finishReason: 'stop' };
             }
           } catch {
-            // Skip malformed
+            // M-2: Log malformed JSON instead of silently swallowing
+            console.warn('[ollama] Skipping malformed JSON:', trimmed.slice(0, 100));
           }
         }
       }
@@ -249,10 +277,23 @@ export class ProviderGateway {
 
 /**
  * Normalize endpoint URL to include /chat/completions path.
+ * M-15: Handle endpoints that already contain API path segments.
  */
 function normalizeEndpoint(url: string): string {
   let normalized = url.trim().replace(/\/+$/, '');
+  // Already a complete chat completions URL
   if (normalized.endsWith('/chat/completions')) return normalized;
+  // Already has /v1 suffix
   if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
+  // M-15: Don't append if URL already has an API path (e.g., /api/generate, /api/chat)
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.pathname !== '/' && parsed.pathname !== '') {
+      // URL already has a path — don't modify it
+      return normalized;
+    }
+  } catch {
+    // Not a valid URL, proceed with normalization
+  }
   return normalized + '/v1/chat/completions';
 }

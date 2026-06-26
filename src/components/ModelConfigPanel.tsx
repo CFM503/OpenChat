@@ -20,6 +20,8 @@ interface ModelConfigPanelProps {
   onUpdateSearchProvider: (provider: SearchProvider) => void;
   onUpdateSearchApiKey: (key: string) => void;
   onUpdateSearchBaseUrl: (url: string) => void;
+  proxyUrl: string;
+  onUpdateProxyUrl: (url: string) => void;
 }
 
 export function ModelConfigPanel({
@@ -35,6 +37,8 @@ export function ModelConfigPanel({
   onUpdateSearchProvider,
   onUpdateSearchApiKey,
   onUpdateSearchBaseUrl,
+  proxyUrl,
+  onUpdateProxyUrl,
 }: ModelConfigPanelProps) {
   // Form states
   const [isEditing, setIsEditing] = useState(false);
@@ -232,6 +236,29 @@ export function ModelConfigPanel({
                 </span>
               </div>
             )}
+          </div>
+
+          {/* ── Network Proxy ────────────────────────────────────────── */}
+          <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '12px', color: 'var(--text-primary)' }}>
+              🌐 Network Proxy
+            </h3>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="proxy-url-input">
+                Proxy URL
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                id="proxy-url-input"
+                value={proxyUrl}
+                onChange={e => onUpdateProxyUrl(e.target.value)}
+                placeholder="http://127.0.0.1:7890"
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                💡 Supports HTTP/HTTPS/SOCKS5 proxies. Leave empty for direct connection. Example: <code>http://127.0.0.1:7890</code> or <code>socks5://127.0.0.1:1080</code>
+              </span>
+            </div>
           </div>
         </>
       ) : (

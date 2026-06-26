@@ -25,3 +25,8 @@ dist-ssr
 
 # Local app configuration
 .openchat
+.openchat.bak
+openchat.json
+
+# Claude Code local settings
+.claude/

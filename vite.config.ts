@@ -86,7 +86,7 @@ export default defineConfig(async () => {
     server: {
       port: defaultPort,
       open: true,
-      host: true,
+      host: 'localhost',  // L-12: Don't bind to 0.0.0.0
       proxy: {
         // Proxy /api and /ws to backend when it's running
         '/api': {

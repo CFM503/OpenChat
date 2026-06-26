@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { spawn } from 'child_process';
+import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
 
@@ -13,16 +14,34 @@ interface BashInput {
 }
 
 const DANGEROUS_PATTERNS = [
-  /\brm\s+-rf\s+\/(?!tmp)/,
+  /\brm\s+(-[^\s]*\s+)*\/(?!tmp)/,     // rm with any flags targeting root (not /tmp)
+  /\brmdir\s+\/(?!tmp)/,                 // rmdir targeting root
   /\bmkfs\b/,
   /\bdd\s+of=\/dev/,
   /:(){ :\|:& };:/,
   /\bformat\b.*[a-zA-Z]:/,
   />\s*\/dev\/sd[a-z]/,
+  /\bchmod\b.*\b777\b.*\//,              // chmod 777 on system paths
+  /\bwget\b.*\|\s*(ba)?sh/,              // pipe download to shell
+  /\bcurl\b.*\|\s*(ba)?sh/,              // pipe download to shell
 ];
 
 function isDangerousCommand(cmd: string): boolean {
   return DANGEROUS_PATTERNS.some(p => p.test(cmd));
+}
+
+/** Resolve cwd and ensure it stays within workspace boundary (H-4). */
+function safeCwd(inputCwd: string | undefined, workingDirectory: string): string | null {
+  if (!inputCwd) return workingDirectory;
+  const absPath = path.isAbsolute(inputCwd)
+    ? inputCwd
+    : path.resolve(workingDirectory, inputCwd);
+  const normalized = path.normalize(absPath);
+  const workspaceNorm = path.normalize(workingDirectory);
+  if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) {
+    return normalized;
+  }
+  return null;
 }
 
 export const BashTool: ToolDefinition<BashInput> = {
@@ -48,7 +67,7 @@ export const BashTool: ToolDefinition<BashInput> = {
     required: ['command'],
   },
   isReadOnly: false,
-  isDestructive: false,
+  isDestructive: true,  // L-6: Bash can modify system state
 
   async execute(input: BashInput, ctx: ToolContext): Promise<ToolResult> {
     const start = Date.now();
@@ -63,11 +82,16 @@ export const BashTool: ToolDefinition<BashInput> = {
       };
     }
 
-    const cwd = input.cwd
-      ? input.cwd.startsWith('/')
-        ? input.cwd
-        : `${ctx.workingDirectory}/${input.cwd}`
-      : ctx.workingDirectory;
+    // H-4: Validate cwd stays within workspace boundary
+    const cwd = safeCwd(input.cwd, ctx.workingDirectory);
+    if (!cwd) {
+      return {
+        success: false,
+        output: '',
+        error: `Working directory escapes workspace boundary: ${input.cwd}`,
+        duration: 0,
+      };
+    }
 
     return new Promise<ToolResult>((resolve) => {
       const isWin = process.platform === 'win32';
