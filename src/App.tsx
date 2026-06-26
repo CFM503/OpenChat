@@ -14,7 +14,8 @@ import { canMakeRealRequest, streamRealResponse } from './core/apiClient';
 import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
-import { searchWeb } from './core/searchClient';
+import { searchWeb, type SearchProviderConfig } from './core/searchClient';
+import type { SearchProvider } from './core/types';
 import { backendClient } from './services/api';
 
 // ── Unique ID generator ────────────────────────────────────────────────────
@@ -97,8 +98,15 @@ export function App() {
     const saved = localStorage.getItem('openchat_web_search_enabled');
     return saved === 'true';
   });
-  const [tavilyApiKey, setTavilyApiKey] = useState(() => {
-    return localStorage.getItem('openchat_tavily_key') || '';
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>(() => {
+    return (localStorage.getItem('openchat_search_provider') as SearchProvider) || 'tavily';
+  });
+  const [searchApiKey, setSearchApiKey] = useState(() => {
+    // Migrate from old tavily key if present
+    return localStorage.getItem('openchat_search_api_key') || localStorage.getItem('openchat_tavily_key') || '';
+  });
+  const [searchBaseUrl, setSearchBaseUrl] = useState(() => {
+    return localStorage.getItem('openchat_search_base_url') || 'http://localhost:8888';
   });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState(false);
@@ -127,7 +135,9 @@ export function App() {
       const localModels = localStorage.getItem('openchat_models');
       const localActiveId = localStorage.getItem('openchat_active_model_id');
       const localSearch = localStorage.getItem('openchat_web_search_enabled');
-      const localTavily = localStorage.getItem('openchat_tavily_key');
+      const localSearchProvider = localStorage.getItem('openchat_search_provider');
+      const localSearchApiKey = localStorage.getItem('openchat_search_api_key') || localStorage.getItem('openchat_tavily_key');
+      const localSearchBaseUrl = localStorage.getItem('openchat_search_base_url');
 
       try {
         const response = await fetch('/api/config');
@@ -145,8 +155,16 @@ export function App() {
             if (config.webSearchEnabled !== undefined) {
               setWebSearchEnabled(config.webSearchEnabled);
             }
-            if (config.tavilyApiKey !== undefined) {
-              setTavilyApiKey(config.tavilyApiKey);
+            if (config.searchProvider !== undefined) {
+              setSearchProvider(config.searchProvider);
+            }
+            if (config.searchApiKey !== undefined) {
+              setSearchApiKey(config.searchApiKey);
+            } else if (config.tavilyApiKey !== undefined) {
+              setSearchApiKey(config.tavilyApiKey);
+            }
+            if (config.searchBaseUrl !== undefined) {
+              setSearchBaseUrl(config.searchBaseUrl);
             }
           } else if (localModels) {
             // Backend empty but localStorage has data — sync localStorage → backend
@@ -158,7 +176,9 @@ export function App() {
                   models: JSON.parse(localModels),
                   activeModelId: localActiveId ?? '',
                   webSearchEnabled: localSearch === 'true',
-                  tavilyApiKey: localTavily ?? '',
+                  searchProvider: localSearchProvider ?? 'tavily',
+                  searchApiKey: localSearchApiKey ?? '',
+                  searchBaseUrl: localSearchBaseUrl ?? '',
                 }),
               });
             } catch { /* ignore sync errors */ }
@@ -181,7 +201,9 @@ export function App() {
     localStorage.setItem('openchat_models', JSON.stringify(models));
     localStorage.setItem('openchat_active_model_id', activeModelId);
     localStorage.setItem('openchat_web_search_enabled', String(webSearchEnabled));
-    localStorage.setItem('openchat_tavily_key', tavilyApiKey);
+    localStorage.setItem('openchat_search_provider', searchProvider);
+    localStorage.setItem('openchat_search_api_key', searchApiKey);
+    localStorage.setItem('openchat_search_base_url', searchBaseUrl);
 
     const timer = setTimeout(async () => {
       try {
@@ -194,7 +216,9 @@ export function App() {
             models,
             activeModelId,
             webSearchEnabled,
-            tavilyApiKey,
+            searchProvider,
+            searchApiKey,
+            searchBaseUrl,
           }),
         });
       } catch (err) {
@@ -203,16 +227,18 @@ export function App() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [models, activeModelId, webSearchEnabled, tavilyApiKey, isConfigLoaded]);
+  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, isConfigLoaded]);
+
+  const hasSearchKey = searchProvider === 'searxng' ? !!searchBaseUrl.trim() : !!searchApiKey.trim();
 
   const handleToggleWebSearch = useCallback((enabled: boolean) => {
-    if (enabled && !tavilyApiKey.trim()) {
-      alert("Tavily API Key is missing. Please configure it in the Settings panel.");
+    if (enabled && !hasSearchKey) {
+      alert("Search API Key is missing. Please configure it in the Settings panel.");
       setShowModelConfig(true);
       return;
     }
     setWebSearchEnabled(enabled);
-  }, [tavilyApiKey]);
+  }, [hasSearchKey]);
 
   const handleSendMessage = useCallback(
     async (content: string, attachments?: ChatAttachment[]) => {
@@ -306,7 +332,7 @@ export function App() {
 
       let injectedMessages = [...messages, userMsg];
 
-      if (webSearchEnabled && tavilyApiKey.trim()) {
+      if (webSearchEnabled && hasSearchKey) {
         // Set state to "Searching..."
         setMessages(prev =>
           prev.map(m =>
@@ -320,7 +346,12 @@ export function App() {
         );
 
         try {
-          const searchContext = await searchWeb(content.trim(), tavilyApiKey.trim());
+          const searchConfig: SearchProviderConfig = {
+            provider: searchProvider,
+            apiKey: searchApiKey,
+            baseUrl: searchBaseUrl,
+          };
+          const searchContext = await searchWeb(content.trim(), searchConfig);
           
           const systemMsg: ChatMessage = {
             id: uid('msg'),
@@ -455,7 +486,7 @@ export function App() {
         );
       }
     },
-    [isStreaming, activeModelId, messages, webSearchEnabled, tavilyApiKey]
+    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey]
   );
 
   // --- Stop streaming handler ---
@@ -647,7 +678,7 @@ export function App() {
             onStopStreaming={handleStopStreaming}
             webSearchEnabled={webSearchEnabled}
             onToggleWebSearch={handleToggleWebSearch}
-            hasSearchKey={!!tavilyApiKey.trim()}
+            hasSearchKey={hasSearchKey}
           />
         </div>
 
@@ -697,8 +728,12 @@ export function App() {
               onUpdateModel={handleUpdateModel}
               onDeleteModel={handleDeleteModel}
               onSetActive={setActiveModelId}
-              tavilyApiKey={tavilyApiKey}
-              onUpdateTavilyKey={setTavilyApiKey}
+              searchProvider={searchProvider}
+              searchApiKey={searchApiKey}
+              searchBaseUrl={searchBaseUrl}
+              onUpdateSearchProvider={setSearchProvider}
+              onUpdateSearchApiKey={setSearchApiKey}
+              onUpdateSearchBaseUrl={setSearchBaseUrl}
             />
           </div>
         </div>

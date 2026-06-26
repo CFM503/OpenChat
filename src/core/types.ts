@@ -122,6 +122,8 @@ export interface WorkspaceFile {
 
 // --- Application State ---
 
+export type SearchProvider = 'tavily' | 'serpapi' | 'bing' | 'searxng';
+
 export interface AppState {
   models: ModelConfig[];
   activeModelId: string | null;
@@ -132,5 +134,9 @@ export interface AppState {
   activeTab: 'chat' | 'tasks' | 'models' | 'files';
   rightPanelTab: 'code' | 'tasks';
   webSearchEnabled: boolean;
+  searchProvider?: SearchProvider;
+  searchApiKey?: string;
+  searchBaseUrl?: string;
+  /** @deprecated Use searchApiKey */
   tavilyApiKey?: string;
 }

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchWeb } from '../core/searchClient';
+import type { SearchProviderConfig } from '../core/searchClient';
+
+const tavilyConfig: SearchProviderConfig = { provider: 'tavily', apiKey: 'tavily-key-123' };
 
 describe('searchWeb client helper', () => {
   beforeEach(() => {
@@ -7,8 +10,8 @@ describe('searchWeb client helper', () => {
   });
 
   it('should throw an error if API key is missing', async () => {
-    await expect(searchWeb('weather', '')).rejects.toThrow(
-      'Tavily API key is missing. Please configure it in Settings.'
+    await expect(searchWeb('weather', { provider: 'tavily', apiKey: '' })).rejects.toThrow(
+      'Tavily API key is missing'
     );
   });
 
@@ -34,7 +37,7 @@ describe('searchWeb client helper', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await searchWeb('vite releases', 'tavily-key-123');
+    const result = await searchWeb('vite releases', tavilyConfig);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith('https://api.tavily.com/search', expect.objectContaining({
@@ -66,7 +69,7 @@ describe('searchWeb client helper', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await searchWeb('nonexistent query', 'tavily-key-123');
+    const result = await searchWeb('nonexistent query', tavilyConfig);
     expect(result).toBe('No search results found.');
   });
 
@@ -78,8 +81,8 @@ describe('searchWeb client helper', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(searchWeb('query', 'invalid-key')).rejects.toThrow(
-      'Search API returned status 401: Unauthorized API Key'
+    await expect(searchWeb('query', { provider: 'tavily', apiKey: 'invalid-key' })).rejects.toThrow(
+      'Tavily error (401)'
     );
   });
 });
