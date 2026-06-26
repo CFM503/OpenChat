@@ -49,6 +49,20 @@ export interface ChatMessage {
   modelId?: string;
   isStreaming?: boolean;
   attachments?: ChatAttachment[];
+  toolEvents?: ToolEvent[];
+}
+
+export interface ToolEvent {
+  type: 'start' | 'result';
+  toolCallId: string;
+  name: string;
+  input?: string;
+  result?: {
+    success: boolean;
+    output: string;
+    error?: string;
+    duration: number;
+  };
 }
 
 export interface ParsedStreamChunk {

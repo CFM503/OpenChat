@@ -4,7 +4,8 @@
 // ============================================================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatAttachment } from '../core/types';
+import type { ChatMessage, ChatAttachment, ToolEvent } from '../core/types';
+import { ToolOutput } from './ToolOutput';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -308,6 +309,20 @@ export function ChatPanel({
           <div key={msg.id} className={`message-item ${msg.role === 'user' ? 'user' : 'assistant'}`}>
             {msg.role === 'assistant' && msg.thinking && (
               <CollapsibleThinking thinkingContent={msg.thinking} />
+            )}
+            {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
+              <div className="tool-events">
+                {msg.toolEvents.map((evt, idx) => (
+                  <ToolOutput
+                    key={evt.toolCallId + '-' + idx}
+                    toolName={evt.name}
+                    status={evt.type === 'start' ? 'running' : (evt.result?.success ? 'success' : 'error')}
+                    input={evt.input}
+                    output={evt.result?.output ?? evt.result?.error}
+                    duration={evt.result?.duration}
+                  />
+                ))}
+              </div>
             )}
             {msg.content && (
               <div className="message-bubble">

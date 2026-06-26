@@ -1,8 +1,8 @@
 # OpenChat — AI Coding Workspace Platform
 
-OpenChat is a premium, high-performance prototype of an AI coding platform (similar to OpenAI Codex/Canvas) built with **React**, **TypeScript**, **Vite**, and **Vanilla CSS**.
+OpenChat is an AI coding platform (similar to OpenAI Codex/Canvas) built with **React**, **TypeScript**, **Vite**, and **Vanilla CSS** — now with a **backend gateway** that lets AI truly execute tasks (run commands, read/write files, search code) rather than just generate text.
 
-It features an immersive dual-pane layout: a **Chat & Thinking Console** on the left and a **Code & Task Workspace** on the right. It includes a dynamic model routing gateway (supporting OpenAI/Ollama) and a finite-state machine-driven Agent Task Manager.
+It features an immersive dual-pane layout: a **Chat & Thinking Console** on the left and a **Code & Task Workspace** on the right. The backend provides real tool execution (bash, file ops, grep, git), multi-provider model routing, and session persistence.
 
 ---
 
@@ -89,7 +89,7 @@ src/
 ## 🚀 Getting Started
 
 ### Prerequisites
-Make sure you have Node.js (v18+) installed.
+Make sure you have Node.js (v22+) installed.
 
 ### 1. Install Dependencies
 Navigate to the root directory and run:
@@ -100,17 +100,31 @@ npm install
 ### 2. Run Tests
 Verify modules and state machines with the automated test suites:
 ```bash
-npm run test
+npm run test:run
 ```
 
 ### 3. Launch Development Server
-Launch the hot-reloading development server locally:
+
+**Full stack (recommended)** — start backend + frontend together:
 ```bash
+npm run dev:all
+```
+
+Or start them separately:
+```bash
+# Terminal 1: Backend gateway (port 3001)
+npm run dev:server
+
+# Terminal 2: Frontend dev server (port 3000)
 npm run dev
 ```
+
 Open [http://localhost:3000](http://localhost:3000) in your web browser.
 
-### 4. Build for Production
+### 4. Configure a Model
+Open Settings (`Ctrl+,`) and add your API key for OpenAI, Ollama, or any compatible provider. Without an API key, the app runs in demo mode with simulated responses.
+
+### 5. Build for Production
 To bundle the optimized web assets for deployment:
 ```bash
 npm run build

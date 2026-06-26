@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, AgentTask, ModelConfig, WorkspaceFile, TaskAction, ChatAttachment } from './core/types';
+import type { ToolEvent } from './services/api';
 import { createParserState, feedChunk, finalize } from './core/streamParser';
 import { ModelRouter, DEFAULT_MODELS } from './core/modelRouter';
 import { TaskManager } from './core/taskStateMachine';
@@ -14,6 +15,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
 import { searchWeb } from './core/searchClient';
+import { backendClient } from './services/api';
 
 // ── Unique ID generator ────────────────────────────────────────────────────
 let idCounter = 0;
@@ -99,6 +101,7 @@ export function App() {
     return localStorage.getItem('openchat_tavily_key') || '';
   });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+  const [backendAvailable, setBackendAvailable] = useState(false);
 
   // --- Refs ---
   const modelRouterRef = useRef(new ModelRouter(models));
@@ -106,14 +109,32 @@ export function App() {
   const streamAbortRef = useRef<AbortController | null>(null);
 
   // --- Effects ---
+  // Check backend availability on mount
+  useEffect(() => {
+    backendClient.isAvailable().then(async (available) => {
+      if (available) {
+        setBackendAvailable(true);
+        await backendClient.connect();
+      }
+    });
+    return () => { backendClient.disconnect(); };
+  }, []);
+
   // Load config on mount
   useEffect(() => {
     const loadLocalConfig = async () => {
+      // Initial state already loaded from localStorage via useState initializers
+      const localModels = localStorage.getItem('openchat_models');
+      const localActiveId = localStorage.getItem('openchat_active_model_id');
+      const localSearch = localStorage.getItem('openchat_web_search_enabled');
+      const localTavily = localStorage.getItem('openchat_tavily_key');
+
       try {
         const response = await fetch('/api/config');
         if (response.ok) {
           const config = await response.json();
           if (config && Object.keys(config).length > 0) {
+            // Backend has data — use it
             if (config.models) {
               setModels(config.models);
               modelRouterRef.current = new ModelRouter(config.models);
@@ -127,10 +148,25 @@ export function App() {
             if (config.tavilyApiKey !== undefined) {
               setTavilyApiKey(config.tavilyApiKey);
             }
+          } else if (localModels) {
+            // Backend empty but localStorage has data — sync localStorage → backend
+            try {
+              await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  models: JSON.parse(localModels),
+                  activeModelId: localActiveId ?? '',
+                  webSearchEnabled: localSearch === 'true',
+                  tavilyApiKey: localTavily ?? '',
+                }),
+              });
+            } catch { /* ignore sync errors */ }
           }
         }
-      } catch (err) {
-        console.error('Failed to load local config file:', err);
+      } catch {
+        // Backend not running — localStorage values already loaded as initial state
+        console.warn('Backend not available, using localStorage config');
       } finally {
         setIsConfigLoaded(true);
       }
@@ -322,9 +358,68 @@ export function App() {
         }
       }
 
-      // Decide: real API or simulated demo
+      // Decide: backend gateway, real API, or simulated demo
       const activeConfig = modelRouterRef.current.getModel(activeModelId);
-      if (canMakeRealRequest(activeConfig)) {
+      if (backendAvailable && backendClient.isConnected()) {
+        // ── Backend gateway (with tool execution) ──
+        const toolEvents: ToolEvent[] = [];
+        let assistantContent = '';
+
+        await backendClient.sendMessage(injectedMessages, activeModelId, {
+          onContent: (text) => {
+            assistantContent += text;
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, content: assistantContent }
+                  : m
+              )
+            );
+          },
+          onThinking: (text) => {
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, thinking: (m.thinking ?? '') + text }
+                  : m
+              )
+            );
+          },
+          onToolEvent: (event) => {
+            toolEvents.push(event);
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, toolEvents: [...toolEvents] }
+                  : m
+              )
+            );
+          },
+          onDone: () => {
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, isStreaming: false }
+                  : m
+              )
+            );
+            setIsStreaming(false);
+            streamAbortRef.current = null;
+          },
+          onError: (message) => {
+            assistantContent += `\n\n⚠️ **Error**: ${message}`;
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === assistantMsgId
+                  ? { ...m, content: assistantContent, isStreaming: false }
+                  : m
+              )
+            );
+            setIsStreaming(false);
+            streamAbortRef.current = null;
+          },
+        });
+      } else if (canMakeRealRequest(activeConfig)) {
         // ── Real API call ──
         streamRealResponse(
           modelRouterRef.current,
@@ -354,10 +449,13 @@ export function App() {
 
   // --- Stop streaming handler ---
   const handleStopStreaming = useCallback(() => {
+    if (backendAvailable) {
+      backendClient.abort();
+    }
     if (streamAbortRef.current) {
       streamAbortRef.current.abort();
     }
-  }, []);
+  }, [backendAvailable]);
 
   // --- Model handlers ---
   const handleAddModel = useCallback((config: ModelConfig) => {

@@ -82,10 +82,22 @@ export default defineConfig(async () => {
   }
 
   return {
-    plugins: [react(), localConfigPlugin()],
+    plugins: [react()],
     server: {
       port: defaultPort,
       open: true,
+      host: true,
+      proxy: {
+        // Proxy /api and /ws to backend when it's running
+        '/api': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: 'ws://localhost:3001',
+          ws: true,
+        },
+      },
     },
     test: {
       globals: true,

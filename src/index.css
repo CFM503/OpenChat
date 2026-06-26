@@ -1325,3 +1325,132 @@ pre:hover .code-copy-btn {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+
+/* ── Tool Output ─────────────────────────────────────────────────────────── */
+
+.tool-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.tool-output {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  overflow: hidden;
+  font-size: 0.8rem;
+}
+
+.tool-output.tool-running {
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.tool-output.tool-success {
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.tool-output.tool-error {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.tool-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tool-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.tool-input-preview {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-status-badge {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-status-badge.running {
+  color: var(--accent-color);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.tool-status-badge.success {
+  color: var(--color-success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.tool-status-badge.error {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.tool-duration {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.tool-toggle {
+  display: flex;
+  align-items: center;
+  transition: transform var(--transition-fast);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tool-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.tool-output-content {
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tool-output-content code {
+  font-family: inherit;
+  font-size: inherit;
+}

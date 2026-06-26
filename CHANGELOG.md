@@ -4,6 +4,53 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.1] - 2026-06-26
+
+### Added
+- **Backend Gateway** (`server/`):
+  - Hono + WebSocket server running on port 3001 as the unified API gateway.
+  - Replaces direct frontend-to-LLM API calls with a backend-mediated architecture.
+  - REST endpoints: `/api/health`, `/api/tools`, `/api/config`, `/api/sessions`.
+  - WebSocket endpoint (`/ws`) for full-duplex streaming communication.
+
+- **Tool Execution System** (`server/src/tools/`):
+  - `ToolRegistry` — central tool registration and OpenAI function-calling format export.
+  - `BashTool` — execute shell commands with timeout, output truncation, and dangerous command blocking.
+  - `FileReadTool` / `FileWriteTool` / `FileEditTool` — file operations with path jail (workspace boundary enforcement).
+  - `GrepTool` — regex content search via ripgrep (with grep fallback).
+  - `GlobTool` — file pattern matching with `**`, `*`, `?`, `{a,b}` glob support.
+  - `GitTool` — read-only git operations (status, diff, log, branch).
+
+- **Provider Gateway** (`server/src/providerGateway.ts`):
+  - Unified multi-provider LLM routing supporting OpenAI-compatible SSE and Ollama NDJSON.
+  - Automatic endpoint normalization.
+  - Function calling / tool_use support in streaming responses.
+
+- **Agent Loop** (`server/src/agentLoop.ts`):
+  - Core LLM ↔ Tool interaction loop: sends messages + tool definitions → receives tool_calls → executes tools → feeds results back → repeats.
+  - Maximum 10 rounds to prevent infinite loops.
+  - Abort signal support for cancellation.
+  - Full tool execution event streaming (tool_start, tool_result) to frontend.
+
+- **Session Management** (`server/src/sessionManager.ts`):
+  - Persistent chat sessions stored as JSON files in `~/.openchat/sessions/`.
+  - CRUD operations: create, get, list, update, delete.
+
+- **Frontend Integration**:
+  - `src/services/api.ts` — `BackendClient` WebSocket service with auto-reconnect and health check.
+  - `src/components/ToolOutput.tsx` — renders tool call events (name, status, input preview, expandable output, duration).
+  - `ChatPanel.tsx` updated to render tool events inline in assistant messages.
+  - `App.tsx` routes messages through backend when available, falls back to direct LLM / demo mode.
+  - CSS styles for tool output UI (`.tool-output`, `.tool-header`, `.tool-status-badge`, etc.).
+
+- **Vite Proxy**:
+  - Dev server now proxies `/api/*` and `/ws` to the backend on port 3001.
+
+- **ARCHITECTURE.md**:
+  - Comprehensive architecture evolution blueprint documenting the Frontend + Backend + Tools design.
+
+---
+
 ## [1.0.6] - 2026-06-26
 
 ### Fixed

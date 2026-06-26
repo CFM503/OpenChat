@@ -1,0 +1,195 @@
+// ============================================================================
+// AgentLoop — LLM ↔ Tool interaction loop
+// Sends messages + tool definitions to LLM, executes tool calls, repeats
+// ============================================================================
+
+import crypto from 'crypto';
+import { ProviderGateway } from './providerGateway.js';
+import { ToolRegistry } from './tools/registry.js';
+import type { ToolContext } from './tools/types.js';
+import type { ServerMessage, ChatMessage, ToolCallResult } from './types.js';
+
+export interface AgentLoopParams {
+  messages: ChatMessage[];
+  modelId?: string;
+  signal?: AbortSignal;
+  onEvent: (event: ServerMessage) => void;
+}
+
+export class AgentLoop {
+  constructor(
+    private providers: ProviderGateway,
+    private tools: ToolRegistry,
+    private workingDirectory: string,
+  ) {}
+
+  /**
+   * Run the agent loop:
+   * 1. Send messages + tool defs to LLM
+   * 2. Collect content + tool_calls from streamed response
+   * 3. If tool_calls present: execute each, append results, go to step 1
+   * 4. If no tool_calls: done
+   *
+   * Max 10 rounds to prevent infinite loops.
+   */
+  async run(params: AgentLoopParams): Promise<void> {
+    const { messages, modelId, signal, onEvent } = params;
+    const toolDefs = this.tools.toFunctionDefinitions();
+
+    // Build the messages array for the LLM (convert from our format)
+    let llmMessages = messages
+      .filter(m => m.role !== 'tool')
+      .map(m => ({
+        role: m.role,
+        content: m.content,
+        ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.arguments },
+        }))}),
+      }));
+
+    const sessionId = `session_${Date.now()}`;
+    const ctx: ToolContext = {
+      workingDirectory: this.workingDirectory,
+      sessionId,
+      abortSignal: signal ?? new AbortController().signal,
+    };
+
+    const MAX_ROUNDS = 10;
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      if (signal?.aborted) break;
+
+      let responseContent = '';
+      const toolCallsAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
+
+      try {
+        for await (const chunk of this.providers.streamCompletion({
+          modelId,
+          messages: llmMessages as any,
+          tools: toolDefs.length > 0 ? toolDefs : undefined,
+          signal,
+        })) {
+          if (chunk.type === 'content' && chunk.content) {
+            responseContent += chunk.content;
+            onEvent({ type: 'content', text: chunk.content });
+          }
+          if (chunk.type === 'thinking' && chunk.content) {
+            onEvent({ type: 'thinking', text: chunk.content });
+          }
+          if (chunk.type === 'tool_call' && chunk.toolCalls) {
+            for (const tc of chunk.toolCalls) {
+              const existing = toolCallsAccumulator.get(tc.index);
+              if (existing) {
+                existing.id = tc.id ?? existing.id;
+                existing.name = tc.name ?? existing.name;
+                existing.arguments = (existing.arguments ?? '') + (tc.arguments ?? '');
+              } else {
+                toolCallsAccumulator.set(tc.index, {
+                  id: tc.id ?? `call_${crypto.randomUUID().slice(0, 8)}`,
+                  name: tc.name ?? '',
+                  arguments: tc.arguments ?? '',
+                });
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          onEvent({ type: 'done' });
+          return;
+        }
+        onEvent({ type: 'error', message: err.message });
+        onEvent({ type: 'done' });
+        return;
+      }
+
+      // If no tool calls, we're done
+      if (toolCallsAccumulator.size === 0) {
+        onEvent({ type: 'done' });
+        return;
+      }
+
+      // Build the assistant message with tool_calls
+      const toolCalls = Array.from(toolCallsAccumulator.values());
+      llmMessages.push({
+        role: 'assistant',
+        content: responseContent,
+        tool_calls: toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      });
+
+      // Execute each tool call
+      for (const tc of toolCalls) {
+        if (signal?.aborted) break;
+
+        const tool = this.tools.get(tc.name);
+        if (!tool) {
+          const errorResult: ToolCallResult = {
+            toolCallId: tc.id,
+            name: tc.name,
+            success: false,
+            output: '',
+            error: `Unknown tool: ${tc.name}`,
+            duration: 0,
+          };
+          onEvent({ type: 'tool_result', toolCallId: tc.id, name: tc.name, result: errorResult });
+          llmMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify(errorResult),
+          });
+          continue;
+        }
+
+        // Notify tool start
+        onEvent({
+          type: 'tool_start',
+          toolCallId: tc.id,
+          name: tc.name,
+          input: tc.arguments,
+        });
+
+        // Execute
+        let input: unknown;
+        try {
+          input = JSON.parse(tc.arguments);
+        } catch {
+          input = {};
+        }
+
+        const result = await tool.execute(input as any, ctx);
+        const toolResult: ToolCallResult = {
+          toolCallId: tc.id,
+          name: tc.name,
+          ...result,
+        };
+
+        onEvent({
+          type: 'tool_result',
+          toolCallId: tc.id,
+          name: tc.name,
+          result: toolResult,
+        });
+
+        // Append tool result to messages for next round
+        llmMessages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify({
+            success: result.success,
+            output: result.output,
+            error: result.error,
+          }),
+        });
+      }
+    }
+
+    // Safety: if we hit max rounds
+    onEvent({ type: 'done' });
+  }
+}
