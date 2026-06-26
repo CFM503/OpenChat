@@ -103,7 +103,7 @@ export function App() {
   // --- Refs ---
   const modelRouterRef = useRef(new ModelRouter(models));
   const taskManagerRef = useRef(new TaskManager());
-  const streamAbortRef = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   // --- Effects ---
   // Load config on mount
@@ -138,7 +138,7 @@ export function App() {
     loadLocalConfig();
   }, []);
 
-  // Save config on state changes
+  // Save config on state changes (localStorage immediate, remote debounced)
   useEffect(() => {
     if (!isConfigLoaded) return;
 
@@ -147,7 +147,7 @@ export function App() {
     localStorage.setItem('openchat_web_search_enabled', String(webSearchEnabled));
     localStorage.setItem('openchat_tavily_key', tavilyApiKey);
 
-    const saveLocalConfig = async () => {
+    const timer = setTimeout(async () => {
       try {
         await fetch('/api/config', {
           method: 'POST',
@@ -164,8 +164,9 @@ export function App() {
       } catch (err) {
         console.error('Failed to save local config:', err);
       }
-    };
-    saveLocalConfig();
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [models, activeModelId, webSearchEnabled, tavilyApiKey, isConfigLoaded]);
 
   const handleToggleWebSearch = useCallback((enabled: boolean) => {
@@ -204,7 +205,8 @@ export function App() {
 
       setMessages(prev => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
-      streamAbortRef.current = false;
+      const abortController = new AbortController();
+      streamAbortRef.current = abortController;
 
       // Start streaming
       let parserState = createParserState();
@@ -213,7 +215,7 @@ export function App() {
 
       // Shared chunk handler for both real and simulated streams
       const handleChunk = (chunk: string) => {
-        if (streamAbortRef.current) return;
+        if (streamAbortRef.current?.signal.aborted) return;
 
         const result = feedChunk(parserState, chunk);
         parserState = result.state;
@@ -263,6 +265,7 @@ export function App() {
           )
         );
         setIsStreaming(false);
+        streamAbortRef.current = null;
       };
 
       let injectedMessages = [...messages, userMsg];
@@ -323,7 +326,6 @@ export function App() {
       const activeConfig = modelRouterRef.current.getModel(activeModelId);
       if (canMakeRealRequest(activeConfig)) {
         // ── Real API call ──
-        const abortController = new AbortController();
         streamRealResponse(
           modelRouterRef.current,
           activeModelId,
@@ -349,6 +351,13 @@ export function App() {
     },
     [isStreaming, activeModelId, messages, webSearchEnabled, tavilyApiKey]
   );
+
+  // --- Stop streaming handler ---
+  const handleStopStreaming = useCallback(() => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+    }
+  }, []);
 
   // --- Model handlers ---
   const handleAddModel = useCallback((config: ModelConfig) => {
@@ -526,6 +535,7 @@ export function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isStreaming={isStreaming}
+            onStopStreaming={handleStopStreaming}
             webSearchEnabled={webSearchEnabled}
             onToggleWebSearch={handleToggleWebSearch}
             hasSearchKey={!!tavilyApiKey.trim()}

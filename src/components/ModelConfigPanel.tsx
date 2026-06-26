@@ -28,8 +28,6 @@ export function ModelConfigPanel({
   tavilyApiKey,
   onUpdateTavilyKey,
 }: ModelConfigPanelProps) {
-  const router = new ModelRouter();
-
   // Form states
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -105,7 +103,7 @@ export function ModelConfigPanel({
       isDefault: formIsDefault,
     };
 
-    const validationErrors = router.validateConfig(config);
+    const validationErrors = ModelRouter.validateConfig(config);
     if (validationErrors.length > 0) {
       setErrors(validationErrors);
       return;

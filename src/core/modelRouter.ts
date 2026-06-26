@@ -271,33 +271,13 @@ export class ModelRouter {
     stream: boolean
   ): { url: string; init: RequestInit } {
     // Custom provider uses OpenAI-compatible format by default
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (config.apiKey) {
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
-    }
-
-    return {
-      url: normalizeEndpoint(config.endpoint),
-      init: {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: config.model,
-          messages: this.mapMessagesForOpenAI(messages),
-          max_tokens: config.maxTokens,
-          temperature: config.temperature,
-          stream,
-        }),
-      },
-    };
+    return this.buildOpenAIRequest(config, messages, stream);
   }
 
   /**
    * Validate a model config.
    */
-  validateConfig(config: Partial<ModelConfig>): string[] {
+  static validateConfig(config: Partial<ModelConfig>): string[] {
     const errors: string[] = [];
     if (!config.id || config.id.trim().length === 0) {
       errors.push('Model ID is required');

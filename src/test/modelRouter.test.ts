@@ -91,7 +91,7 @@ describe('ModelRouter Gateway', () => {
       temperature: 0.7,
     };
 
-    const errors = router.validateConfig(invalidConfig);
+    const errors = ModelRouter.validateConfig(invalidConfig);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors).toContain('API key is required for OpenAI provider');
 
@@ -106,7 +106,7 @@ describe('ModelRouter Gateway', () => {
       temperature: 3.5,
     };
 
-    const errors2 = router.validateConfig(invalidConfig2);
+    const errors2 = ModelRouter.validateConfig(invalidConfig2);
     expect(errors2).toContain('Max tokens must be between 1 and 128000');
     expect(errors2).toContain('Temperature must be between 0 and 2');
   });

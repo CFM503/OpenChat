@@ -4,6 +4,21 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [1.0.6] - 2026-06-26
+
+### Fixed
+- **Stream Cancellation**: Stored `AbortController` in a ref so streaming responses can be properly cancelled via the new Stop button (replaces Send while streaming).
+- **XSS in Image Preview**: Replaced unsafe `document.write` with DOM API (`createElement` / `appendChild`) to eliminate file-name injection risk when opening image attachments in a new tab.
+- **Config Save Debounce**: Added 500ms debounce to `POST /api/config` writes to prevent excessive server requests on rapid UI changes (e.g. slider drags). `localStorage` writes remain immediate.
+- **Test Script**: Added `"test": "vitest"` and `"test:run": "vitest --run"` to `package.json` scripts so `npm run test` works as documented.
+
+### Changed
+- Deduplicated `buildCustomRequest` in `modelRouter.ts` — now delegates to `buildOpenAIRequest` since the logic was identical.
+- Made `ModelRouter.validateConfig` a static method; `ModelConfigPanel` no longer instantiates a new `ModelRouter` on every render.
+- Updated `modelRouter.test.ts` to call `ModelRouter.validateConfig` statically.
+
+---
+
 ## [1.0.5] - 2026-06-24
 
 ### Added

@@ -10,6 +10,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string, attachments: ChatAttachment[]) => void;
   isStreaming: boolean;
+  onStopStreaming?: () => void;
   webSearchEnabled?: boolean;
   onToggleWebSearch?: (enabled: boolean) => void;
   hasSearchKey?: boolean;
@@ -218,6 +219,7 @@ export function ChatPanel({
   messages,
   onSendMessage,
   isStreaming,
+  onStopStreaming = () => {},
   webSearchEnabled = false,
   onToggleWebSearch = () => {},
   hasSearchKey = false,
@@ -325,14 +327,18 @@ export function ChatPanel({
                           className="message-attachment-image"
                           onClick={() => {
                             const w = window.open();
-                            w?.document.write(`
-                              <html>
-                                <head><title>${attach.name}</title></head>
-                                <body style="margin:0; background:#0a0e1a; display:flex; align-items:center; justify-content:center; min-height:100vh;">
-                                  <img src="${attach.content}" style="max-width:100%; max-height:100vh; object-fit:contain;" />
-                                </body>
-                              </html>
-                            `);
+                            if (!w) return;
+                            const doc = w.document;
+                            doc.open();
+                            doc.write('<!doctype html><html><head></head><body></body></html>');
+                            doc.close();
+                            doc.title = attach.name;
+                            const body = doc.body;
+                            body.style.cssText = 'margin:0; background:#0a0e1a; display:flex; align-items:center; justify-content:center; min-height:100vh;';
+                            const img = doc.createElement('img');
+                            img.src = attach.content;
+                            img.style.cssText = 'max-width:100%; max-height:100vh; object-fit:contain;';
+                            body.appendChild(img);
                           }}
                         />
                       </div>
@@ -440,18 +446,32 @@ export function ChatPanel({
                 </svg>
               </button>
             </div>
-            <button
-              className="btn-primary"
-              onClick={handleSend}
-              disabled={isStreaming || (inputText.trim().length === 0 && stagedAttachments.length === 0)}
-              id="chat-send-btn"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-              <span>Send</span>
-            </button>
+            {isStreaming ? (
+              <button
+                className="btn-primary"
+                onClick={onStopStreaming}
+                id="chat-stop-btn"
+                style={{ background: 'var(--color-error)' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+                <span>Stop</span>
+              </button>
+            ) : (
+              <button
+                className="btn-primary"
+                onClick={handleSend}
+                disabled={inputText.trim().length === 0 && stagedAttachments.length === 0}
+                id="chat-send-btn"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+                <span>Send</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
