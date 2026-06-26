@@ -285,15 +285,20 @@ function normalizeEndpoint(url: string): string {
   if (normalized.endsWith('/chat/completions')) return normalized;
   // Already has /v1 suffix
   if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
-  // M-15: Don't append if URL already has an API path (e.g., /api/generate, /api/chat)
   try {
     const parsed = new URL(normalized);
-    if (parsed.pathname !== '/' && parsed.pathname !== '') {
-      // URL already has a path — don't modify it
+    const p = parsed.pathname.replace(/\/+$/, '');
+    // API version prefix → append /chat/completions (e.g., /v1beta, /v1alpha, /v1/proxy)
+    if (/^\/v\d+/.test(p)) {
+      return normalized + '/chat/completions';
+    }
+    // Complete endpoint path (Ollama /api/generate, /api/chat, etc.) → don't modify
+    if (p !== '' && p !== '/') {
       return normalized;
     }
   } catch {
     // Not a valid URL, proceed with normalization
   }
+  // Bare domain → append /v1/chat/completions
   return normalized + '/v1/chat/completions';
 }
