@@ -141,3 +141,60 @@ export interface AppState {
   /** @deprecated Use searchApiKey */
   tavilyApiKey?: string;
 }
+
+// ── Skill Types ──────────────────────────────────────────────────────────────
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  shortcut: string;
+  category?: string;
+  builtin: boolean;
+  content?: string;
+}
+
+// ── MCP Types ────────────────────────────────────────────────────────────────
+
+export interface MCPServerStatus {
+  name: string;
+  running: boolean;
+  tools: string[];
+}
+
+// ── Plugin Types ─────────────────────────────────────────────────────────────
+
+export interface PluginInfo {
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  enabled: boolean;
+  tools: Array<{
+    name: string;
+    description: string;
+    isReadOnly: boolean;
+    isDestructive: boolean;
+  }>;
+}
+
+// ── Registry Types ───────────────────────────────────────────────────────────
+
+export interface RegistryPackageInfo {
+  name: string;
+  type: 'plugin' | 'skill';
+  version: string;
+  description: string;
+  author?: string;
+  downloads?: number;
+  tags?: string[];
+  shortcut?: string;
+  downloadUrl?: string;
+}
+
+export interface InstalledPackageInfo {
+  name: string;
+  type: 'plugin' | 'skill';
+  version: string;
+  source?: string;
+  installedAt: string;
+}

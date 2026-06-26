@@ -1499,3 +1499,166 @@ pre:hover .code-copy-btn {
   font-family: inherit;
   font-size: inherit;
 }
+
+/* ============================================================================
+   Skill Picker
+   ============================================================================ */
+
+.skill-picker-overlay {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.skill-picker {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  margin-bottom: 4px;
+}
+
+.skill-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.skill-picker-list {
+  padding: 4px;
+}
+
+.skill-picker-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.skill-picker-item:hover {
+  background: var(--bg-surface);
+}
+
+.skill-picker-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.skill-picker-shortcut {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: rgba(99, 102, 241, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.skill-picker-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skill-picker-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.skill-picker-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  padding-left: 0;
+}
+
+/* ============================================================================
+   Extension Panel (Settings sub-section)
+   ============================================================================ */
+
+.extension-section {
+  margin-bottom: 24px;
+}
+
+.extension-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.extension-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.extension-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.extension-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.extension-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.extension-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.extension-badge.builtin {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--color-primary);
+}
+
+.extension-badge.running {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-success);
+}
+
+.extension-badge.stopped {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-error);
+}

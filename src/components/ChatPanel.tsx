@@ -4,8 +4,10 @@
 // ============================================================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatAttachment, ToolEvent } from '../core/types';
+import type { ChatMessage, ChatAttachment, ToolEvent, SkillInfo } from '../core/types';
 import { ToolOutput } from './ToolOutput';
+import { SkillPicker } from './SkillPicker';
+import { backendClient } from '../services/api';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -230,6 +232,40 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Skill picker state
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [skillFilter, setSkillFilter] = useState('');
+
+  // Load skills on mount
+  useEffect(() => {
+    backendClient.getSkills().then(setSkills).catch(() => {});
+  }, []);
+
+  // Detect "/" trigger in input
+  useEffect(() => {
+    if (inputText === '/') {
+      setShowSkillPicker(true);
+      setSkillFilter('');
+    } else if (inputText.startsWith('/') && !inputText.includes(' ')) {
+      setShowSkillPicker(true);
+      setSkillFilter(inputText.slice(1));
+    } else {
+      setShowSkillPicker(false);
+    }
+  }, [inputText]);
+
+  const handleSkillSelect = async (skill: SkillInfo) => {
+    setShowSkillPicker(false);
+    // Expand skill template
+    const expanded = await backendClient.expandSkill(skill.name);
+    if (expanded) {
+      setInputText(expanded);
+    } else {
+      setInputText(skill.content || skill.shortcut + ' ');
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -391,6 +427,14 @@ export function ChatPanel({
       </div>
 
       <div className="chat-input-area">
+        {showSkillPicker && skills.length > 0 && (
+          <SkillPicker
+            skills={skills}
+            filter={skillFilter}
+            onSelect={handleSkillSelect}
+            onClose={() => setShowSkillPicker(false)}
+          />
+        )}
         <div className="chat-input-wrapper">
           {stagedAttachments.length > 0 && (
             <div className="staged-attachments-list">
@@ -430,7 +474,7 @@ export function ChatPanel({
 
           <textarea
             className="chat-textarea"
-            placeholder="Ask anything... (Enter to send, Shift+Enter for newline)"
+            placeholder="Ask anything... (/ for skills, Enter to send, Shift+Enter for newline)"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}

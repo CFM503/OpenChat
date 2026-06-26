@@ -4,6 +4,7 @@
 // ============================================================================
 
 import type { ChatMessage, ServerMessage, ClientMessage } from '../../server/src/types.js';
+import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo } from '../core/types.js';
 
 export type { ChatMessage, ServerMessage, ClientMessage };
 
@@ -188,6 +189,125 @@ export class BackendClient {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'abort' } satisfies ClientMessage));
     }
+  }
+
+  // ── Skill API ───────────────────────────────────────────────────────────
+
+  async getSkills(): Promise<SkillInfo[]> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/skills', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  async expandSkill(name: string, selection?: string): Promise<string | null> {
+    try {
+      const resp = await fetch(`http://localhost:3001/api/skills/${encodeURIComponent(name)}/expand`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selection }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data = await resp.json() as { expanded: string };
+        return data.expanded;
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  // ── MCP API ─────────────────────────────────────────────────────────────
+
+  async getMCPServers(): Promise<MCPServerStatus[]> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/mcp/servers', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  // ── Plugin API ───────────────────────────────────────────────────────────
+
+  async getPlugins(): Promise<PluginInfo[]> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/plugins', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  // ── Registry API ─────────────────────────────────────────────────────────
+
+  async searchRegistry(query: string): Promise<RegistryPackageInfo[]> {
+    try {
+      const resp = await fetch(`http://localhost:3001/api/registry/search?q=${encodeURIComponent(query)}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (resp.ok) {
+        const data = await resp.json() as { packages: RegistryPackageInfo[] };
+        return data.packages;
+      }
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  async installPackage(name: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/registry/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(60000),
+      });
+      return resp.json();
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async uninstallPackage(name: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const resp = await fetch(`http://localhost:3001/api/registry/uninstall/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(10000),
+      });
+      return resp.json();
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async getInstalledPackages(): Promise<InstalledPackageInfo[]> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/registry/installed', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data = await resp.json() as { installed: InstalledPackageInfo[] };
+        return data.installed;
+      }
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  async checkUpdates(): Promise<Array<{ name: string; current: string; latest: string }>> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/registry/updates', {
+        signal: AbortSignal.timeout(15000),
+      });
+      if (resp.ok) {
+        const data = await resp.json() as { updates: Array<{ name: string; current: string; latest: string }> };
+        return data.updates;
+      }
+    } catch { /* ignore */ }
+    return [];
   }
 
   /**

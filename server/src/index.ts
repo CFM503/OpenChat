@@ -16,6 +16,15 @@ import { BashTool } from './tools/BashTool.js';
 import { FileReadTool, FileWriteTool, FileEditTool } from './tools/FileTool.js';
 import { GrepTool, GlobTool } from './tools/GrepGlobTool.js';
 import { GitTool } from './tools/GitTool.js';
+import { SkillManager } from './skills/loader.js';
+import { createSkillsRouter } from './api/skills.js';
+import { MCPManager } from './mcp/manager.js';
+import { createMCPRouter } from './api/mcp.js';
+import { PluginManager } from './plugins/loader.js';
+import { createPluginRouter } from './api/plugins.js';
+import { RegistryClient } from './registry/client.js';
+import { RegistryInstaller } from './registry/installer.js';
+import { createRegistryRouter } from './api/registry.js';
 
 import type { ClientMessage, ServerMessage } from './types.js';
 
@@ -37,6 +46,25 @@ tools.register(FileEditTool);
 tools.register(GrepTool);
 tools.register(GlobTool);
 tools.register(GitTool);
+
+// Skill and MCP managers
+const userHome = process.env.HOME ?? process.env.USERPROFILE ?? WORKING_DIRECTORY;
+const openchatDir = `${userHome}/.openchat`;
+const skills = new SkillManager(`${openchatDir}/skills`);
+const mcpManager = new MCPManager(config, tools);
+const pluginManager = new PluginManager(`${openchatDir}/plugins`, tools);
+
+// Registry system
+const cfg = config.load();
+const registries = (cfg as any).registries as string[] ?? [];
+const registryClient = new RegistryClient(registries, cfg.proxyUrl);
+const registryInstaller = new RegistryInstaller(
+  registryClient,
+  `${openchatDir}/skills`,
+  `${openchatDir}/plugins`,
+  skills,
+  pluginManager,
+);
 
 const agentLoop = new AgentLoop(providers, tools, WORKING_DIRECTORY);
 
@@ -108,12 +136,43 @@ app.get('/api/tools', (c) => {
   );
 });
 
+// Skills API
+app.route('/api/skills', createSkillsRouter(skills));
+
+// MCP API
+app.route('/api/mcp', createMCPRouter(mcpManager));
+
+// Plugin API
+app.route('/api/plugins', createPluginRouter(pluginManager));
+
+// Registry API
+app.route('/api/registry', createRegistryRouter(registryClient, registryInstaller));
+
 // ── HTTP Server + WebSocket ─────────────────────────────────────────────────
 
-const httpServer = serve({ fetch: app.fetch, port: PORT }, (info) => {
+const httpServer = serve({ fetch: app.fetch, port: PORT }, async (info) => {
   console.log(`\n  ✨ OpenChat Backend running at http://localhost:${info.port}`);
   console.log(`  📂 Working directory: ${WORKING_DIRECTORY}`);
   console.log(`  🔧 Tools: ${tools.getAll().map(t => t.name).join(', ')}`);
+
+  // Load skills
+  await skills.load();
+  console.log(`  ⚡ Skills: ${skills.getAll().map(s => s.shortcut).join(', ')}`);
+
+  // Start MCP servers
+  await mcpManager.startAll();
+  const mcpTools = mcpManager.getTools();
+  if (mcpTools.length > 0) {
+    console.log(`  🔌 MCP tools: ${mcpTools.map(t => t.name).join(', ')}`);
+  }
+
+  // Load plugins
+  await pluginManager.loadAll();
+  const pluginToolNames = pluginManager.getToolNames();
+  if (pluginToolNames.length > 0) {
+    console.log(`  🧩 Plugin tools: ${pluginToolNames.join(', ')}`);
+  }
+
   const activeModel = providers.getActiveModel();
   if (activeModel) {
     console.log(`  🤖 Active model: ${activeModel.name} (${activeModel.provider})`);
@@ -207,6 +266,7 @@ wss.on('connection', (ws: WebSocket) => {
 // L-3: Graceful shutdown
 function shutdown() {
   console.log('\n  🛑 Shutting down...');
+  mcpManager.stopAll();
   wss.clients.forEach(ws => ws.close());
   httpServer.close(() => {
     console.log('  ✅ Server closed');

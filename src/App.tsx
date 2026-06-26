@@ -14,6 +14,7 @@ import { canMakeRealRequest, streamRealResponse } from './core/apiClient';
 import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
+import { ExtensionPanel } from './components/ExtensionPanel';
 import { searchWeb, type SearchProviderConfig } from './core/searchClient';
 import type { SearchProvider } from './core/types';
 import { backendClient } from './services/api';
@@ -761,6 +762,12 @@ export function App() {
               proxyUrl={proxyUrl}
               onUpdateProxyUrl={setProxyUrl}
             />
+            <div style={{ borderTop: '1px solid var(--border-color)', margin: '24px 0', paddingTop: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🧩 Extensions
+              </h3>
+              <ExtensionPanel />
+            </div>
           </div>
         </div>
       )}

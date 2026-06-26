@@ -14,6 +14,8 @@ export interface OpenChatConfig {
   searchApiKey?: string;
   searchBaseUrl?: string;
   proxyUrl?: string;
+  mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  registries?: string[];
 }
 
 export interface ModelConfig {
