@@ -6,6 +6,11 @@ import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
+import { ConfigManager } from '../configManager.js';
+
+// Shared config instance for reading allowedDirectories
+let _config: ConfigManager | null = null;
+export function setGrepGlobToolConfig(config: ConfigManager) { _config = config; }
 
 interface GrepInput {
   pattern: string;
@@ -25,6 +30,13 @@ function safeSearchPath(inputPath: string | undefined, workingDirectory: string)
   const workspaceNorm = path.normalize(workingDirectory);
   if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) {
     return normalized;
+  }
+  // Check allowed directories
+  const cfg = _config?.load();
+  const allowed = cfg?.allowedDirectories ?? [];
+  for (const dir of allowed) {
+    const dirNorm = path.normalize(dir);
+    if (normalized === dirNorm || normalized.startsWith(dirNorm + path.sep)) return normalized;
   }
   return null;
 }

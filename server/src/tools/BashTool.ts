@@ -6,6 +6,11 @@ import { spawn } from 'child_process';
 import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
+import { ConfigManager } from '../configManager.js';
+
+// Shared config instance for reading allowedDirectories
+let _config: ConfigManager | null = null;
+export function setBashToolConfig(config: ConfigManager) { _config = config; }
 
 interface BashInput {
   command: string;
@@ -30,7 +35,7 @@ function isDangerousCommand(cmd: string): boolean {
   return DANGEROUS_PATTERNS.some(p => p.test(cmd));
 }
 
-/** Resolve cwd and ensure it stays within workspace boundary (H-4). */
+/** Resolve cwd and ensure it stays within workspace boundary or allowed directories (H-4). */
 function safeCwd(inputCwd: string | undefined, workingDirectory: string): string | null {
   if (!inputCwd) return workingDirectory;
   const absPath = path.isAbsolute(inputCwd)
@@ -40,6 +45,13 @@ function safeCwd(inputCwd: string | undefined, workingDirectory: string): string
   const workspaceNorm = path.normalize(workingDirectory);
   if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) {
     return normalized;
+  }
+  // Check allowed directories
+  const cfg = _config?.load();
+  const allowed = cfg?.allowedDirectories ?? [];
+  for (const dir of allowed) {
+    const dirNorm = path.normalize(dir);
+    if (normalized === dirNorm || normalized.startsWith(dirNorm + path.sep)) return normalized;
   }
   return null;
 }

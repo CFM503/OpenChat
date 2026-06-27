@@ -6,39 +6,48 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
+import { ConfigManager } from '../configManager.js';
+
+// Shared config instance for reading allowedDirectories
+let _config: ConfigManager | null = null;
+export function setFileToolConfig(config: ConfigManager) { _config = config; }
+
+function isPathAllowed(normalized: string, workspace: string): boolean {
+  const workspaceNorm = path.normalize(workspace);
+  if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) return true;
+  // Check allowed directories
+  const cfg = _config?.load();
+  const allowed = cfg?.allowedDirectories ?? [];
+  for (const dir of allowed) {
+    const dirNorm = path.normalize(dir);
+    if (normalized === dirNorm || normalized.startsWith(dirNorm + path.sep)) return true;
+  }
+  return false;
+}
 
 /**
- * Resolves a file path and ensures it stays within the workspace.
- * H-10: Fixes symlink escape and prefix matching boundary issues.
+ * Resolves a file path and ensures it stays within the workspace or allowed directories.
  */
 async function safePath(filePath: string, workspace: string): Promise<string | null> {
   const absPath = path.isAbsolute(filePath)
     ? filePath
     : path.resolve(workspace, filePath);
   const normalized = path.normalize(absPath);
-  const workspaceNorm = path.normalize(workspace);
 
-  // Fix prefix matching: require path separator after workspace prefix
-  if (normalized !== workspaceNorm && !normalized.startsWith(workspaceNorm + path.sep)) {
-    return null;
-  }
+  if (!isPathAllowed(normalized, workspace)) return null;
 
   // Resolve symlinks to prevent escape via symbolic links
   try {
     const realPath = await fs.realpath(absPath);
     const realNormalized = path.normalize(realPath);
-    if (realNormalized !== workspaceNorm && !realNormalized.startsWith(workspaceNorm + path.sep)) {
-      return null;  // Symlink points outside workspace
-    }
+    if (!isPathAllowed(realNormalized, workspace)) return null;
   } catch {
-    // File doesn't yet — check parent directory for write operations
+    // File doesn't exist yet — check parent directory for write operations
     const parentDir = path.dirname(absPath);
     try {
       const realParent = await fs.realpath(parentDir);
       const realParentNorm = path.normalize(realParent);
-      if (realParentNorm !== workspaceNorm && !realParentNorm.startsWith(workspaceNorm + path.sep)) {
-        return null;
-      }
+      if (!isPathAllowed(realParentNorm, workspace)) return null;
     } catch {
       return null;  // Parent doesn't exist or can't be resolved
     }

@@ -126,6 +126,11 @@ export function App() {
   const [proxyEnabled, setProxyEnabled] = useState(() => {
     return localStorage.getItem('openchat_proxy_enabled') === 'true';
   });
+  const [allowedDirectories, setAllowedDirectories] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('openchat_allowed_dirs') || '[]');
+    } catch { return []; }
+  });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState(false);
 
@@ -238,6 +243,7 @@ export function App() {
     localStorage.setItem('openchat_search_base_url', searchBaseUrl);
     localStorage.setItem('openchat_proxy_url', proxyUrl);
     localStorage.setItem('openchat_proxy_enabled', String(proxyEnabled));
+    localStorage.setItem('openchat_allowed_dirs', JSON.stringify(allowedDirectories));
 
     const timer = setTimeout(async () => {
       try {
@@ -255,6 +261,7 @@ export function App() {
             searchBaseUrl,
             proxyUrl,
             proxyEnabled,
+            allowedDirectories,
           }),
         });
       } catch (err) {
@@ -263,7 +270,7 @@ export function App() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, proxyEnabled, isConfigLoaded]);
+  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, proxyEnabled, allowedDirectories, isConfigLoaded]);
 
   // Load sessions on mount
   useEffect(() => {
@@ -916,8 +923,10 @@ export function App() {
                   <NetworkSettings
                     proxyUrl={proxyUrl}
                     proxyEnabled={proxyEnabled}
+                    allowedDirectories={allowedDirectories}
                     onUpdateProxyUrl={setProxyUrl}
                     onUpdateProxyEnabled={setProxyEnabled}
+                    onUpdateAllowedDirectories={setAllowedDirectories}
                   />
                 )}
                 {settingsTab === 'extensions' && (

@@ -7,11 +7,16 @@ import React from 'react';
 interface NetworkSettingsProps {
   proxyUrl: string;
   proxyEnabled: boolean;
+  allowedDirectories: string[];
   onUpdateProxyUrl: (url: string) => void;
   onUpdateProxyEnabled: (enabled: boolean) => void;
+  onUpdateAllowedDirectories: (dirs: string[]) => void;
 }
 
-export function NetworkSettings({ proxyUrl, proxyEnabled, onUpdateProxyUrl, onUpdateProxyEnabled }: NetworkSettingsProps) {
+export function NetworkSettings({
+  proxyUrl, proxyEnabled, allowedDirectories,
+  onUpdateProxyUrl, onUpdateProxyEnabled, onUpdateAllowedDirectories,
+}: NetworkSettingsProps) {
   return (
     <div>
       <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px' }}>🌐 Network</h3>
@@ -77,6 +82,28 @@ export function NetworkSettings({ proxyUrl, proxyEnabled, onUpdateProxyUrl, onUp
           <div><code>http://127.0.0.1:1080</code> — HTTP proxy</div>
           <div><code>socks5://127.0.0.1:1080</code> — SOCKS5 proxy</div>
         </div>
+      </div>
+
+      {/* Allowed Directories */}
+      <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+        <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>📂 Allowed Directories</h4>
+        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          AI tools can access the project directory by default. Add additional directories here (one per line).
+        </p>
+        <textarea
+          className="form-input"
+          value={allowedDirectories.join('\n')}
+          onChange={e => {
+            const dirs = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+            onUpdateAllowedDirectories(dirs);
+          }}
+          placeholder={"D:\\DOWNLOAD\nD:\\Projects\n/home/user/code"}
+          rows={3}
+          style={{ resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+        />
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+          💡 The project working directory is always allowed. Add paths here to access other locations.
+        </span>
       </div>
     </div>
   );

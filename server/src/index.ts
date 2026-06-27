@@ -14,8 +14,10 @@ import { SessionManager } from './sessionManager.js';
 import { ToolRegistry } from './tools/registry.js';
 import { BashTool } from './tools/BashTool.js';
 import { FileReadTool, FileWriteTool, FileEditTool } from './tools/FileTool.js';
-import { GrepTool, GlobTool } from './tools/GrepGlobTool.js';
+import { GrepTool, GlobTool, setGrepGlobToolConfig } from './tools/GrepGlobTool.js';
 import { GitTool } from './tools/GitTool.js';
+import { setFileToolConfig } from './tools/FileTool.js';
+import { setBashToolConfig } from './tools/BashTool.js';
 import { SkillManager } from './skills/loader.js';
 import { createSkillsRouter } from './api/skills.js';
 import { MCPManager } from './mcp/manager.js';
@@ -37,6 +39,11 @@ const config = new ConfigManager(WORKING_DIRECTORY);
 const providers = new ProviderGateway(config);
 const sessions = new SessionManager();
 const tools = new ToolRegistry();
+
+// Share config with tools for allowedDirectories support
+setFileToolConfig(config);
+setBashToolConfig(config);
+setGrepGlobToolConfig(config);
 
 // Register all tools
 tools.register(BashTool);
