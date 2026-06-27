@@ -570,44 +570,32 @@ export function App() {
       }
 
       if (canMakeRealRequest(activeConfig)) {
-        // If proxy is configured, requests MUST go through the backend gateway
-        // (browser fetch doesn't support proxies)
-        if (proxyEnabled && proxyUrl && proxyUrl.trim()) {
-          // Try to reconnect to backend
+        // Always try backend first (avoids CORS issues with local LLMs like LM Studio)
+        if (!backendAvailableRef.current) {
           const reconnected = await backendClient.connect();
           if (reconnected) {
-            // Retry via backend
-            const sent = await backendClient.sendMessage(injectedMessages, activeModelId, {
-              onContent: (text) => {
-                accumulatedContent += text;
-                setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m));
-              },
-              onThinking: () => {},
-              onToolEvent: () => {},
-              onDone: () => { handleDone(); },
-              onError: (msg) => { accumulatedContent += `\n\n⚠️ **API Error**: ${msg}`; handleDone(); },
-            });
-            if (sent) return;
+            backendAvailableRef.current = true;
+            setBackendAvailable(true);
           }
-          accumulatedContent += `\n\n⚠️ **Proxy Error**: Proxy is enabled but backend is not running. Start the backend server (\`npm run dev:server\`) to use proxy.`;
-          handleDone();
-          return;
         }
 
-        // ── Real API call (direct, no proxy) ──
-        streamRealResponse(
-          modelRouterRef.current,
-          activeModelId,
-          injectedMessages,
-          handleChunk,
-          handleDone,
-          (error: Error) => {
-            // On error, show the error message in the assistant bubble
-            accumulatedContent += `\n\n⚠️ **API Error**: ${error.message}`;
-            handleDone();
-          },
-          abortController.signal
-        );
+        if (backendAvailableRef.current && backendClient.isConnected()) {
+          const sent = await backendClient.sendMessage(injectedMessages, activeModelId, {
+            onContent: (text) => {
+              accumulatedContent += text;
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m));
+            },
+            onThinking: () => {},
+            onToolEvent: () => {},
+            onDone: () => { handleDone(); },
+            onError: (msg) => { accumulatedContent += `\n\n⚠️ **API Error**: ${msg}`; handleDone(); },
+          });
+          if (sent) return;
+        }
+
+        // Backend unavailable — show error instead of CORS-failing direct fetch
+        accumulatedContent += `\n\n⚠️ **Backend not running**. Start with \`npm run dev:server\` or \`npm run dev:all\` to enable API calls.`;
+        handleDone();
       } else {
         // ── Demo simulation fallback ──
         simulateStream(
