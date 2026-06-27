@@ -4,6 +4,20 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.12] - 2026-06-28
+
+### Added
+- **Allowed Directories**: Configure additional directories AI tools can access (Settings → Network → Allowed Directories)
+  - FileTool, BashTool, GrepGlobTool all respect allowed directories
+  - Access files outside project root (e.g., `D:\DOWNLOAD`)
+- **File Upload Size Limit**: 50MB max with error alert
+
+### Fixed
+- **Empty Tool Call Filter**: Skip tool calls with empty names (prevents 400 errors on MiMo/Gemma)
+- **normalizeEndpoint**: Fixed regex to handle `/v1beta`, `/v1alpha` paths correctly → `/v1beta/openai/chat/completions`
+
+---
+
 ## [2.0.0-alpha.11] - 2026-06-27
 
 ### Added
