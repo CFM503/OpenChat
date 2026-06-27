@@ -206,6 +206,8 @@ export function App() {
                   searchProvider: localSearchProvider ?? 'tavily',
                   searchApiKey: localSearchApiKey ?? '',
                   searchBaseUrl: localSearchBaseUrl ?? '',
+                  proxyUrl: localStorage.getItem('openchat_proxy_url') ?? '',
+                  proxyEnabled: localStorage.getItem('openchat_proxy_enabled') === 'true',
                 }),
               });
             } catch { /* ignore sync errors */ }

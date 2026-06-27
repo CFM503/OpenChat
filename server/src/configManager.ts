@@ -64,6 +64,8 @@ export function validateConfig(data: unknown): string | null {
   }
   if (cfg.webSearchEnabled !== undefined && typeof cfg.webSearchEnabled !== 'boolean')
     return 'webSearchEnabled must be a boolean';
+  if (cfg.proxyEnabled !== undefined && typeof cfg.proxyEnabled !== 'boolean')
+    return 'proxyEnabled must be a boolean';
   return null;
 }
 

@@ -129,12 +129,11 @@ export class ProviderGateway {
       headers,
       body: JSON.stringify(body),
       signal: params.signal,
-      ...(this.getProxyDispatcher() && { dispatcher: this.getProxyDispatcher() }),
+      ...(this.getProxyDispatcher() ? { dispatcher: this.proxyAgent! } : {}),
     } as any);
 
     if (!resp.ok) {
       const errBody = await resp.text();
-      // M-1: Sanitize API keys from error messages
       const sanitized = errBody.replace(/sk-[a-zA-Z0-9_-]{20,}/g, 'sk-***');
       throw new Error(`Provider error (${resp.status}): ${sanitized}`);
     }
@@ -231,7 +230,7 @@ export class ProviderGateway {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: params.signal,
-      ...(this.getProxyDispatcher() && { dispatcher: this.getProxyDispatcher() }),
+      ...(this.getProxyDispatcher() ? { dispatcher: this.proxyAgent! } : {}),
     } as any);
 
     if (!resp.ok) {
