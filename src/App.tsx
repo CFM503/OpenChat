@@ -17,6 +17,7 @@ import { ModelConfigPanel } from './components/ModelConfigPanel';
 import { ExtensionPanel } from './components/ExtensionPanel';
 import { SearchSettings } from './components/SearchSettings';
 import { NetworkSettings } from './components/NetworkSettings';
+import { SessionList, type SessionInfo } from './components/SessionList';
 import { searchWeb, type SearchProviderConfig } from './core/searchClient';
 import type { SearchProvider } from './core/types';
 import { backendClient } from './services/api';
@@ -102,6 +103,8 @@ export function App() {
   const [rightPanelTab, setRightPanelTab] = useState<'code' | 'tasks'>('code');
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'models' | 'search' | 'network' | 'extensions'>('models');
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
     const saved = localStorage.getItem('openchat_web_search_enabled');
@@ -262,6 +265,70 @@ export function App() {
     return () => clearTimeout(timer);
   }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, proxyEnabled, isConfigLoaded]);
 
+  // Load sessions on mount
+  useEffect(() => {
+    backendClient.getSessions().then(list => {
+      setSessions(list.map(s => ({
+        id: s.id,
+        title: s.title,
+        messageCount: s.messages.length,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      })));
+    }).catch(() => {});
+  }, []);
+
+  // Auto-save current session when messages change
+  useEffect(() => {
+    if (!activeSessionId || messages.length === 0) return;
+    const timer = setTimeout(() => {
+      backendClient.updateSession(activeSessionId, messages).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [messages, activeSessionId]);
+
+  // Session handlers
+  const handleNewSession = useCallback(async () => {
+    // Save current session if needed
+    setMessages([]);
+    setActiveSessionId(null);
+  }, []);
+
+  const handleSelectSession = useCallback(async (id: string) => {
+    const session = await backendClient.getSession(id);
+    if (session) {
+      setActiveSessionId(id);
+      setMessages(session.messages);
+    }
+  }, []);
+
+  const handleDeleteSession = useCallback(async (id: string) => {
+    await backendClient.deleteSession(id);
+    setSessions(prev => prev.filter(s => s.id !== id));
+    if (activeSessionId === id) {
+      setActiveSessionId(null);
+      setMessages([]);
+    }
+  }, [activeSessionId]);
+
+  // Create session on first message if none active
+  const ensureSession = useCallback(async (): Promise<string | null> => {
+    if (activeSessionId) return activeSessionId;
+    const result = await backendClient.createSession();
+    if (result) {
+      setActiveSessionId(result.id);
+      setSessions(prev => [{
+        id: result.id,
+        title: 'New Chat',
+        messageCount: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }, ...prev]);
+      return result.id;
+    }
+    return null;
+  }, [activeSessionId]);
+
   const hasSearchKey = searchProvider === 'searxng' ? !!searchBaseUrl.trim() : !!searchApiKey.trim();
 
   const handleToggleWebSearch = useCallback((enabled: boolean) => {
@@ -277,6 +344,9 @@ export function App() {
     async (content: string, attachments?: ChatAttachment[]) => {
       if (isStreaming) return;
       if (content.trim().length === 0 && (!attachments || attachments.length === 0)) return;
+
+      // Auto-create session if none active
+      await ensureSession();
 
       const userMsg: ChatMessage = {
         id: uid('msg'),
@@ -548,7 +618,7 @@ export function App() {
         );
       }
     },
-    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl, proxyEnabled]
+    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl, proxyEnabled, ensureSession]
   );
 
   // --- Stop streaming handler ---
@@ -731,6 +801,19 @@ export function App() {
 
       {/* ── Main Content ─────────────────────────────────────────────── */}
       <main className={`app-main ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        {/* Session Sidebar */}
+        {!sidebarCollapsed && (
+          <div className="session-sidebar">
+            <SessionList
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelect={handleSelectSession}
+              onNew={handleNewSession}
+              onDelete={handleDeleteSession}
+            />
+          </div>
+        )}
+
         {/* Left Panel — Chat */}
         <div className="panel panel-left" id="chat-panel">
           <ChatPanel

@@ -5,6 +5,7 @@
 
 import type { ChatMessage, ServerMessage, ClientMessage } from '../../server/src/types.js';
 import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo } from '../core/types.js';
+import type { ChatMessage as ServerChatMessage } from '../../server/src/types.js';
 
 export type { ChatMessage, ServerMessage, ClientMessage };
 
@@ -308,6 +309,61 @@ export class BackendClient {
       }
     } catch { /* ignore */ }
     return [];
+  }
+
+  // ── Session API ──────────────────────────────────────────────────────────
+
+  async getSessions(): Promise<Array<{ id: string; title: string; messages: ServerChatMessage[]; createdAt: number; updatedAt: number }>> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/sessions', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  async createSession(title?: string): Promise<{ id: string } | null> {
+    try {
+      const resp = await fetch('http://localhost:3001/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  async updateSession(id: string, messages: any[]): Promise<void> {
+    try {
+      await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* ignore */ }
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    try {
+      await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* ignore */ }
+  }
+
+  async getSession(id: string): Promise<{ id: string; title: string; messages: any[] } | null> {
+    try {
+      const resp = await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return null;
   }
 
   /**

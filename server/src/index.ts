@@ -109,6 +109,18 @@ app.get('/api/sessions/:id', (c) => {
   return c.json(session);
 });
 
+app.post('/api/sessions', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const session = sessions.create(body.title);
+  return c.json({ id: session.id, title: session.title });
+});
+
+app.put('/api/sessions/:id', async (c) => {
+  const body = await c.req.json();
+  sessions.update(c.req.param('id'), body.messages ?? []);
+  return c.json({ success: true });
+});
+
 app.delete('/api/sessions/:id', (c) => {
   sessions.delete(c.req.param('id'));
   return c.json({ success: true });
