@@ -1,11 +1,11 @@
 // ============================================================================
 // ModelConfigPanel Component
-// Enables configuring models, endpoints, keys, and routing behavior
+// Provider presets, quick add, model auto-detect, and manual config
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import type { ModelConfig, ModelProvider } from '../core/types';
-import { ModelRouter, normalizeEndpoint } from '../core/modelRouter';
+import { ModelRouter, normalizeEndpoint, PROVIDER_PRESETS, type ProviderPreset } from '../core/modelRouter';
 
 interface ModelConfigPanelProps {
   models: ModelConfig[];
@@ -24,10 +24,11 @@ export function ModelConfigPanel({
   onDeleteModel,
   onSetActive,
 }: ModelConfigPanelProps) {
-  // Form states
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showPresets, setShowPresets] = useState(false);
 
+  // Form states
   const [formId, setFormId] = useState('');
   const [formName, setFormName] = useState('');
   const [formProvider, setFormProvider] = useState<ModelProvider>('openai');
@@ -41,19 +42,66 @@ export function ModelConfigPanel({
 
   const [errors, setErrors] = useState<string[]>([]);
 
-  const handleProviderChange = (provider: ModelProvider) => {
-    setFormProvider(provider);
-    if (provider === 'openai') {
-      setFormEndpoint('https://api.openai.com/v1/chat/completions');
-      setFormModel('gpt-4o');
-    } else if (provider === 'ollama') {
-      setFormEndpoint('http://localhost:11434/api/chat');
-      setFormModel('llama3');
+  // Auto-detect state
+  const [detectingModels, setDetectingModels] = useState(false);
+  const [detectedModels, setDetectedModels] = useState<string[]>([]);
+  const [detectError, setDetectError] = useState('');
+
+  // Apply a preset to the form
+  const applyPreset = useCallback((preset: ProviderPreset) => {
+    setFormId(`model_${preset.id}_${Date.now()}`);
+    setFormName(preset.name);
+    setFormProvider(preset.provider);
+    setFormEndpoint(preset.endpoint);
+    setFormApiKey('');
+    setFormModel(preset.model);
+    setFormMaxTokens(4096);
+    setFormTemperature(0.7);
+    setFormIsDefault(false);
+    setFormDisableTools(false);
+    setDetectedModels([]);
+    setDetectError('');
+    setErrors([]);
+    setIsEditing(true);
+    setEditingId(null);
+    setShowPresets(false);
+  }, []);
+
+  // Auto-detect models from endpoint
+  const handleDetectModels = useCallback(async () => {
+    if (!formEndpoint.trim()) return;
+    setDetectingModels(true);
+    setDetectError('');
+    setDetectedModels([]);
+
+    // Build the models URL
+    let modelsUrl = formEndpoint.trim().replace(/\/+$/, '');
+    // Strip /chat/completions if present
+    if (modelsUrl.endsWith('/chat/completions')) {
+      modelsUrl = modelsUrl.replace('/chat/completions', '/models');
+    } else if (modelsUrl.endsWith('/api/chat')) {
+      // Ollama
+      modelsUrl = modelsUrl.replace('/api/chat', '/api/tags');
     } else {
-      setFormEndpoint('');
-      setFormModel('');
+      modelsUrl = modelsUrl + '/models';
     }
-  };
+
+    try {
+      const resp = await fetch(`/api/discover-models?url=${encodeURIComponent(modelsUrl)}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await resp.json();
+      if (data.models && data.models.length > 0) {
+        setDetectedModels(data.models);
+      } else {
+        setDetectError(data.error || 'No models found');
+      }
+    } catch (err: any) {
+      setDetectError(err.message || 'Failed to detect models');
+    } finally {
+      setDetectingModels(false);
+    }
+  }, [formEndpoint]);
 
   const handleEdit = (model: ModelConfig) => {
     setIsEditing(true);
@@ -68,23 +116,32 @@ export function ModelConfigPanel({
     setFormTemperature(model.temperature);
     setFormIsDefault(model.isDefault);
     setFormDisableTools(model.disableTools ?? false);
+    setDetectedModels([]);
+    setDetectError('');
     setErrors([]);
   };
 
   const handleAddNew = () => {
+    setShowPresets(true);
+  };
+
+  const handleManualAdd = () => {
     setIsEditing(true);
     setEditingId(null);
     setFormId(`model_${Date.now()}`);
     setFormName('');
     setFormProvider('openai');
-    setFormEndpoint('https://api.openai.com/v1/chat/completions');
+    setFormEndpoint('https://api.openai.com/v1');
     setFormApiKey('');
-    setFormModel('gpt-4o');
+    setFormModel('');
     setFormMaxTokens(4096);
     setFormTemperature(0.7);
     setFormIsDefault(false);
     setFormDisableTools(false);
+    setDetectedModels([]);
+    setDetectError('');
     setErrors([]);
+    setShowPresets(false);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -122,12 +179,13 @@ export function ModelConfigPanel({
 
   return (
     <div className="model-config-panel">
-      {!isEditing ? (
+      {/* ── Model List View ──────────────────────────────────────── */}
+      {!isEditing && !showPresets && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Active Model Routes</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Model Routes</h3>
             <button className="btn-primary" onClick={handleAddNew} id="btn-add-model-open">
-              Add Model
+              + Add Model
             </button>
           </div>
 
@@ -143,12 +201,13 @@ export function ModelConfigPanel({
                   <span className="model-item-title">
                     {m.name}
                     {m.isDefault && <span className="logo-badge" style={{ fontSize: '0.65rem' }}>Default</span>}
+                    {m.disableTools && <span className="logo-badge" style={{ fontSize: '0.65rem', background: 'var(--bg-surface)' }}>No Tools</span>}
                   </span>
                   <span className="model-item-subtitle">
-                    Provider: {m.provider} | Model: {m.model}
+                    {m.provider} · {m.model || 'auto-detect'}
                   </span>
                   <span className="model-item-subtitle" style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-                    Endpoint: {m.endpoint}
+                    {m.endpoint}
                   </span>
                 </div>
                 <div className="model-item-actions" onClick={e => e.stopPropagation()}>
@@ -169,11 +228,66 @@ export function ModelConfigPanel({
             ))}
           </div>
         </>
-      ) : (
+      )}
+
+      {/* ── Quick Add / Presets View ─────────────────────────────── */}
+      {showPresets && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Add Model — Choose Provider</h3>
+            <button className="btn-ghost" onClick={() => setShowPresets(false)}>← Back</button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '16px' }}>
+            {PROVIDER_PRESETS.map(preset => (
+              <button
+                key={preset.id}
+                onClick={() => applyPreset(preset)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '12px 14px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                  transition: 'border-color 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-color)')}
+              >
+                <span style={{ fontSize: '20px' }}>{preset.icon}</span>
+                <div>
+                  <div style={{ fontWeight: '600' }}>{preset.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {preset.needsApiKey ? 'API Key required' : 'Local · No key needed'}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+            <button className="btn-ghost" onClick={handleManualAdd} style={{ fontSize: '12px' }}>
+              Or configure manually →
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Edit / Add Form ──────────────────────────────────────── */}
+      {isEditing && (
         <form onSubmit={handleFormSubmit} className="model-form" id="model-config-form">
-          <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>
-            {editingId ? 'Edit Model Routing' : 'Create Custom Route'}
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>
+              {editingId ? 'Edit Model' : 'Add Model'}
+            </h3>
+            <button type="button" className="btn-ghost" onClick={() => { setIsEditing(false); setEditingId(null); }}>
+              ← Back
+            </button>
+          </div>
 
           {errors.length > 0 && (
             <div className="error-list">
@@ -184,44 +298,16 @@ export function ModelConfigPanel({
           )}
 
           <div className="form-group">
-            <label>Model Configuration Name</label>
+            <label>Name</label>
             <input
               type="text"
               className="form-input"
               value={formName}
               onChange={e => setFormName(e.target.value)}
-              placeholder="e.g. My Custom Llama"
+              placeholder="e.g. GPT-4o, MiMo Pro"
               required
               id="model-name-input"
             />
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Provider Type</label>
-              <select
-                className="form-select"
-                value={formProvider}
-                onChange={e => handleProviderChange(e.target.value as ModelProvider)}
-                id="model-provider-select"
-              >
-                <option value="openai">OpenAI</option>
-                <option value="ollama">Ollama (Local)</option>
-                <option value="custom">Custom Endpoint</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Model Identifier</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formModel}
-                onChange={e => setFormModel(e.target.value)}
-                placeholder="e.g. gpt-4o, llama3"
-                required
-                id="model-identifier-input"
-              />
-            </div>
           </div>
 
           <div className="form-group">
@@ -230,7 +316,7 @@ export function ModelConfigPanel({
               type="text"
               className="form-input"
               value={formEndpoint}
-              onChange={e => setFormEndpoint(e.target.value)}
+              onChange={e => { setFormEndpoint(e.target.value); setDetectedModels([]); }}
               onBlur={() => {
                 if (formProvider !== 'ollama' && formEndpoint.trim()) {
                   setFormEndpoint(normalizeEndpoint(formEndpoint));
@@ -241,29 +327,99 @@ export function ModelConfigPanel({
               id="model-endpoint-input"
             />
             {formProvider !== 'ollama' && formEndpoint.trim() && !formEndpoint.includes('/chat/completions') && (
-              <span style={{ fontSize: '0.75rem', color: 'var(--color-info)', marginTop: '4px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--color-info)', marginTop: '4px', display: 'block' }}>
                 💡 Will auto-complete to: {normalizeEndpoint(formEndpoint)}
               </span>
             )}
           </div>
 
-          {formProvider !== 'ollama' && (
-            <div className="form-group">
-              <label>API Key</label>
+          <div className="form-group">
+            <label>Model Identifier</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
               <input
-                type="password"
+                type="text"
                 className="form-input"
-                value={formApiKey}
-                onChange={e => setFormApiKey(e.target.value)}
-                placeholder="API Key / Token..."
-                id="model-apikey-input"
+                value={formModel}
+                onChange={e => setFormModel(e.target.value)}
+                placeholder="e.g. gpt-4o, gemini-2.5-flash"
+                required
+                id="model-identifier-input"
+                style={{ flex: 1 }}
               />
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleDetectModels}
+                disabled={detectingModels || !formEndpoint.trim()}
+                style={{ whiteSpace: 'nowrap', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                title="Auto-detect available models from endpoint"
+              >
+                {detectingModels ? '...' : '🔍 Detect'}
+              </button>
             </div>
-          )}
+
+            {detectedModels.length > 0 && (
+              <div style={{
+                marginTop: '6px', padding: '6px',
+                background: 'var(--bg-surface)', borderRadius: '6px',
+                maxHeight: '150px', overflowY: 'auto',
+              }}>
+                {detectedModels.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { setFormModel(m); setDetectedModels([]); }}
+                    style={{
+                      display: 'block', width: '100%', padding: '4px 8px',
+                      background: formModel === m ? 'var(--bg-surface-elevated)' : 'transparent',
+                      border: 'none', borderRadius: '4px',
+                      color: 'var(--text-primary)', fontSize: '12px',
+                      fontFamily: 'var(--font-mono)', textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {detectError && (
+              <span style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '4px', display: 'block' }}>
+                ⚠️ {detectError}
+              </span>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>Provider Type</label>
+            <select
+              className="form-select"
+              value={formProvider}
+              onChange={e => setFormProvider(e.target.value as ModelProvider)}
+              id="model-provider-select"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama (Local)</option>
+              <option value="custom">Custom Endpoint</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>API Key</label>
+            <input
+              type="password"
+              className="form-input"
+              value={formApiKey}
+              onChange={e => setFormApiKey(e.target.value)}
+              placeholder="Leave empty for local models (LM Studio, Ollama)"
+              id="model-apikey-input"
+            />
+          </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label>Max Predict Tokens ({formMaxTokens})</label>
+              <label>Max Tokens ({formMaxTokens})</label>
               <input
                 type="range"
                 min="256"
@@ -290,43 +446,28 @@ export function ModelConfigPanel({
             </div>
           </div>
 
-          <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={formIsDefault}
-              onChange={e => setFormIsDefault(e.target.checked)}
-              id="model-isdefault-checkbox"
-            />
-            <label htmlFor="model-isdefault-checkbox" style={{ cursor: 'pointer' }}>
-              Set as provider default
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={formIsDefault}
+                onChange={e => setFormIsDefault(e.target.checked)}
+              />
+              Set as default
             </label>
-          </div>
-
-          <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              checked={formDisableTools}
-              onChange={e => setFormDisableTools(e.target.checked)}
-              id="model-disabletools-checkbox"
-            />
-            <label htmlFor="model-disabletools-checkbox" style={{ cursor: 'pointer' }}>
-              Disable tools (for models that don't support function calling)
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={formDisableTools}
+                onChange={e => setFormDisableTools(e.target.checked)}
+              />
+              Disable tools
             </label>
           </div>
 
           <div className="form-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                setIsEditing(false);
-                setEditingId(null);
-              }}
-            >
-              Cancel
-            </button>
             <button type="submit" className="btn-primary" id="model-submit-btn">
-              Save Route
+              {editingId ? 'Save Changes' : 'Add Model'}
             </button>
           </div>
         </form>

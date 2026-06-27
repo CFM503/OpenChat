@@ -85,6 +85,131 @@ export const DEFAULT_MODELS: ModelConfig[] = [
 ];
 
 /**
+ * Provider presets for quick model configuration
+ */
+export interface ProviderPreset {
+  id: string;
+  name: string;
+  icon: string;
+  provider: 'openai' | 'ollama' | 'custom';
+  endpoint: string;
+  model: string;
+  needsApiKey: boolean;
+  apiKeyPlaceholder?: string;
+  modelsEndpoint?: string; // For auto-detect
+  helpUrl?: string;
+}
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    icon: '🟢',
+    provider: 'openai',
+    endpoint: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'sk-...',
+    helpUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    id: 'google',
+    name: 'Google Gemini',
+    icon: '🔵',
+    provider: 'custom',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-2.5-flash',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'AIza...',
+    helpUrl: 'https://aistudio.google.com/apikey',
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    icon: '🟠',
+    provider: 'custom',
+    endpoint: 'https://api.anthropic.com/v1',
+    model: 'claude-sonnet-4-20250514',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'sk-ant-...',
+    helpUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    icon: '🟣',
+    provider: 'custom',
+    endpoint: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'sk-...',
+    helpUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    icon: '⚡',
+    provider: 'custom',
+    endpoint: 'https://api.groq.com/openai/v1',
+    model: 'llama-3.3-70b-versatile',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'gsk_...',
+    helpUrl: 'https://console.groq.com/keys',
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral',
+    icon: '🔶',
+    provider: 'custom',
+    endpoint: 'https://api.mistral.ai/v1',
+    model: 'mistral-large-latest',
+    needsApiKey: true,
+    helpUrl: 'https://console.mistral.ai/api-keys',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    icon: '🔀',
+    provider: 'custom',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-sonnet-4',
+    needsApiKey: true,
+    apiKeyPlaceholder: 'sk-or-...',
+    helpUrl: 'https://openrouter.ai/keys',
+  },
+  {
+    id: 'mimo',
+    name: 'Xiaomi MiMo',
+    icon: '🟤',
+    provider: 'custom',
+    endpoint: 'https://mimo.mi.com/v1',
+    model: 'mimo-v2.5-pro',
+    needsApiKey: true,
+    helpUrl: 'https://mimo.mi.com',
+  },
+  {
+    id: 'lmstudio',
+    name: 'LM Studio',
+    icon: '🏠',
+    provider: 'custom',
+    endpoint: 'http://localhost:1234/v1',
+    model: '',
+    needsApiKey: false,
+    modelsEndpoint: 'http://localhost:1234/v1/models',
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama',
+    icon: '🦙',
+    provider: 'ollama',
+    endpoint: 'http://localhost:11434/api/chat',
+    model: '',
+    needsApiKey: false,
+    modelsEndpoint: 'http://localhost:11434/api/tags',
+  },
+];
+
+/**
  * Registry of all configured models
  */
 export class ModelRouter {

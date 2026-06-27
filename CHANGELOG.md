@@ -4,6 +4,26 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.11] - 2026-06-27
+
+### Added
+- **Provider Presets** (10 providers): OpenAI, Google Gemini, Anthropic Claude, DeepSeek, Groq, Mistral, OpenRouter, Xiaomi MiMo, LM Studio, Ollama
+  - Quick Add grid with icons and descriptions
+  - One-click preset fills endpoint, model, provider type
+
+- **Model Auto-Detect**:
+  - "🔍 Detect" button fetches available models from endpoint (`/v1/models`, `/api/tags`)
+  - Proxied through backend to avoid CORS
+  - Click to select from detected model list
+
+- **Backend**: `GET /api/discover-models?url=` proxy endpoint for model discovery
+
+### Changed
+- Model config form streamlined: presets → quick add → manual form flow
+- Model list shows provider, model name, and "No Tools" badge when applicable
+
+---
+
 ## [2.0.0-alpha.10] - 2026-06-27
 
 ### Added

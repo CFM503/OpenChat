@@ -136,6 +136,28 @@ app.get('/api/health', (c) => {
   });
 });
 
+// Model discovery endpoint (proxies to avoid CORS)
+app.get('/api/discover-models', async (c) => {
+  const url = c.req.query('url');
+  if (!url) return c.json({ error: 'url parameter required' }, 400);
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return c.json({ error: `HTTP ${resp.status}` }, resp.status as any);
+    const data = await resp.json();
+    // Normalize response: OpenAI format returns {data: [{id: ...}]}
+    // Ollama format returns {models: [{name: ...}]}
+    let models: string[] = [];
+    if (data.data && Array.isArray(data.data)) {
+      models = data.data.map((m: any) => m.id).filter(Boolean);
+    } else if (data.models && Array.isArray(data.models)) {
+      models = data.models.map((m: any) => m.name || m.id).filter(Boolean);
+    }
+    return c.json({ models: models.sort() });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Tools listing
 app.get('/api/tools', (c) => {
   return c.json(
