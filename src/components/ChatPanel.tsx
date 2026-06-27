@@ -241,10 +241,16 @@ export function ChatPanel({
     }
   };
 
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     Array.from(files).forEach(file => {
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`File "${file.name}" is too large (${formatSize(file.size)}). Maximum size is 50MB.`);
+        return;
+      }
       const isImage = file.type.startsWith('image/');
       const reader = new FileReader();
       reader.onload = (event) => {
