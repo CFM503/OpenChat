@@ -280,6 +280,13 @@ body {
   font-weight: 600;
   outline: none;
   cursor: pointer;
+  color-scheme: dark;
+}
+
+.model-select option {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  padding: 8px;
 }
 
 .status-dot {
@@ -1224,6 +1231,13 @@ body {
   font-family: var(--font-sans);
   font-size: 0.9rem;
   transition: border-color var(--transition-fast);
+  color-scheme: dark;
+}
+
+.form-select option {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  padding: 8px;
 }
 
 .form-input:focus, .form-select:focus {
