@@ -80,20 +80,32 @@ describe('ModelRouter Gateway', () => {
   it('should validate configurations correctly', () => {
     const router = new ModelRouter();
 
-    // Invalid OpenAI configuration without API key
-    const invalidConfig: Partial<ModelConfig> = {
-      id: 'openai-invalid',
-      name: 'OpenAI Test',
+    // API key is optional — no error when missing
+    const noKeyConfig: Partial<ModelConfig> = {
+      id: 'openai-nokey',
+      name: 'OpenAI No Key',
       provider: 'openai',
       endpoint: 'https://api.openai.com/v1/chat/completions',
       model: 'gpt-4o',
       maxTokens: 4096,
       temperature: 0.7,
     };
+    const noKeyErrors = ModelRouter.validateConfig(noKeyConfig);
+    expect(noKeyErrors).not.toContain('API key is required for OpenAI provider');
 
+    // Invalid config — missing required fields
+    const invalidConfig: Partial<ModelConfig> = {
+      id: '',
+      name: '',
+      provider: 'openai',
+      endpoint: '',
+      model: '',
+    };
     const errors = ModelRouter.validateConfig(invalidConfig);
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors).toContain('API key is required for OpenAI provider');
+    expect(errors).toContain('Model name is required');
+    expect(errors).toContain('Endpoint URL is required');
+    expect(errors).toContain('Model identifier is required');
 
     // Invalid temperature and tokens
     const invalidConfig2: Partial<ModelConfig> = {

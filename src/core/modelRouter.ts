@@ -317,9 +317,7 @@ export class ModelRouter {
     if (!config.endpoint || config.endpoint.trim().length === 0) {
       errors.push('Endpoint URL is required');
     }
-    if (config.provider === 'openai' && (!config.apiKey || config.apiKey.trim().length === 0)) {
-      errors.push('API key is required for OpenAI provider');
-    }
+    // API key is optional for all providers (local proxy, LM Studio, etc.)
     if (!config.model || config.model.trim().length === 0) {
       errors.push('Model identifier is required');
     }
