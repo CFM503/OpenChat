@@ -94,6 +94,41 @@ export class AgentLoop {
         };
       });
 
+    // Sanitize messages: remove empty messages, ensure role alternation
+    llmMessages = llmMessages.filter(m => {
+      // Keep tool messages
+      if (m.role === 'tool') return true;
+      // Keep assistant messages with tool_calls
+      if (m.role === 'assistant' && m.tool_calls?.length > 0) return true;
+      // Remove empty content messages
+      if (!m.content || (typeof m.content === 'string' && m.content.trim() === '')) return false;
+      return true;
+    });
+
+    // Ensure strict role alternation: merge consecutive same-role messages
+    const sanitized: Record<string, any>[] = [];
+    for (const msg of llmMessages) {
+      if (msg.role === 'tool') {
+        sanitized.push(msg);
+        continue;
+      }
+      const last = sanitized[sanitized.length - 1];
+      if (last && last.role === msg.role && last.role !== 'tool') {
+        // Merge consecutive same-role messages
+        if (typeof last.content === 'string' && typeof msg.content === 'string') {
+          last.content += '\n\n' + msg.content;
+        }
+      } else {
+        sanitized.push({ ...msg });
+      }
+    }
+    llmMessages = sanitized;
+
+    // Ensure first message is from user
+    if (llmMessages.length > 0 && llmMessages[0].role === 'assistant') {
+      llmMessages.unshift({ role: 'user', content: 'Continue.' });
+    }
+
     const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,
