@@ -15,6 +15,8 @@ import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';
 import { ExtensionPanel } from './components/ExtensionPanel';
+import { SearchSettings } from './components/SearchSettings';
+import { NetworkSettings } from './components/NetworkSettings';
 import { searchWeb, type SearchProviderConfig } from './core/searchClient';
 import type { SearchProvider } from './core/types';
 import { backendClient } from './services/api';
@@ -99,6 +101,7 @@ export function App() {
   const [activeFileId, setActiveFileId] = useState<string>(DEFAULT_FILES[0].id);
   const [rightPanelTab, setRightPanelTab] = useState<'code' | 'tasks'>('code');
   const [showModelConfig, setShowModelConfig] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'models' | 'search' | 'network' | 'extensions'>('models');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
     const saved = localStorage.getItem('openchat_web_search_enabled');
@@ -729,12 +732,12 @@ export function App() {
         </div>
       </main>
 
-      {/* ── Model Config Modal ───────────────────────────────────────── */}
+      {/* ── Settings Modal ──────────────────────────────────────────── */}
       {showModelConfig && (
         <div className="modal-overlay" onClick={() => setShowModelConfig(false)}>
-          <div className="modal-content modal-large" onClick={e => e.stopPropagation()}>
+          <div className="modal-content modal-large" style={{ display: 'flex', flexDirection: 'column', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Model Configuration</h2>
+              <h2>Settings</h2>
               <button
                 className="btn-icon"
                 onClick={() => setShowModelConfig(false)}
@@ -746,27 +749,57 @@ export function App() {
                 </svg>
               </button>
             </div>
-            <ModelConfigPanel
-              models={models}
-              activeModelId={activeModelId}
-              onAddModel={handleAddModel}
-              onUpdateModel={handleUpdateModel}
-              onDeleteModel={handleDeleteModel}
-              onSetActive={setActiveModelId}
-              searchProvider={searchProvider}
-              searchApiKey={searchApiKey}
-              searchBaseUrl={searchBaseUrl}
-              onUpdateSearchProvider={setSearchProvider}
-              onUpdateSearchApiKey={setSearchApiKey}
-              onUpdateSearchBaseUrl={setSearchBaseUrl}
-              proxyUrl={proxyUrl}
-              onUpdateProxyUrl={setProxyUrl}
-            />
-            <div style={{ borderTop: '1px solid var(--border-color)', margin: '24px 0', paddingTop: '24px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🧩 Extensions
-              </h3>
-              <ExtensionPanel />
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+              {/* Sidebar */}
+              <div className="settings-sidebar">
+                {([
+                  { id: 'models' as const, icon: '🤖', label: 'Models' },
+                  { id: 'search' as const, icon: '🔍', label: 'Search' },
+                  { id: 'network' as const, icon: '🌐', label: 'Network' },
+                  { id: 'extensions' as const, icon: '🧩', label: 'Extensions' },
+                ]).map(item => (
+                  <button
+                    key={item.id}
+                    className={`settings-sidebar-item ${settingsTab === item.id ? 'active' : ''}`}
+                    onClick={() => setSettingsTab(item.id)}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              {/* Content */}
+              <div className="settings-content">
+                {settingsTab === 'models' && (
+                  <ModelConfigPanel
+                    models={models}
+                    activeModelId={activeModelId}
+                    onAddModel={handleAddModel}
+                    onUpdateModel={handleUpdateModel}
+                    onDeleteModel={handleDeleteModel}
+                    onSetActive={setActiveModelId}
+                  />
+                )}
+                {settingsTab === 'search' && (
+                  <SearchSettings
+                    searchProvider={searchProvider}
+                    searchApiKey={searchApiKey}
+                    searchBaseUrl={searchBaseUrl}
+                    onUpdateSearchProvider={setSearchProvider}
+                    onUpdateSearchApiKey={setSearchApiKey}
+                    onUpdateSearchBaseUrl={setSearchBaseUrl}
+                  />
+                )}
+                {settingsTab === 'network' && (
+                  <NetworkSettings
+                    proxyUrl={proxyUrl}
+                    onUpdateProxyUrl={setProxyUrl}
+                  />
+                )}
+                {settingsTab === 'extensions' && (
+                  <ExtensionPanel />
+                )}
+              </div>
             </div>
           </div>
         </div>
