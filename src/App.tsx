@@ -490,7 +490,31 @@ export function App() {
       }
 
       if (canMakeRealRequest(activeConfig)) {
-        // ── Real API call ──
+        // If proxy is configured, requests MUST go through the backend gateway
+        // (browser fetch doesn't support proxies)
+        if (proxyUrl && proxyUrl.trim()) {
+          // Try to reconnect to backend
+          const reconnected = await backendClient.connect();
+          if (reconnected) {
+            // Retry via backend
+            const sent = await backendClient.sendMessage(injectedMessages, activeModelId, {
+              onContent: (text) => {
+                accumulatedContent += text;
+                setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: accumulatedContent } : m));
+              },
+              onThinking: () => {},
+              onToolEvent: () => {},
+              onDone: () => { handleDone(); },
+              onError: (msg) => { accumulatedContent += `\n\n⚠️ **API Error**: ${msg}`; handleDone(); },
+            });
+            if (sent) return;
+          }
+          accumulatedContent += `\n\n⚠️ **Proxy Error**: Proxy is configured but backend is not running. Start the backend server (\`npm run dev:server\`) to use proxy.`;
+          handleDone();
+          return;
+        }
+
+        // ── Real API call (direct, no proxy) ──
         streamRealResponse(
           modelRouterRef.current,
           activeModelId,
@@ -514,7 +538,7 @@ export function App() {
         );
       }
     },
-    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey]
+    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl]
   );
 
   // --- Stop streaming handler ---
