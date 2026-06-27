@@ -81,7 +81,8 @@ export class ProviderGateway {
     const model = this.getActiveModel(modelId);
     if (!model) return false;
     if (model.provider === 'ollama') return true;
-    return !!(model.apiKey && model.apiKey.trim().length > 0);
+    // Allow requests without API key (LM Studio, local proxies, etc.)
+    return !!(model.endpoint && model.endpoint.trim().length > 0);
   }
 
   /**

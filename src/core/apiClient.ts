@@ -7,12 +7,12 @@ import { ModelRouter } from './modelRouter';
 
 /**
  * Determines if a model config has valid credentials to make real API calls.
- * Ollama doesn't need an API key; OpenAI and custom providers do.
+ * Allows requests without API key (LM Studio, local proxies, etc.).
  */
 export function canMakeRealRequest(config: ModelConfig | undefined): boolean {
   if (!config) return false;
   if (config.provider === 'ollama') return true;
-  return !!(config.apiKey && config.apiKey.trim().length > 0);
+  return !!(config.endpoint && config.endpoint.trim().length > 0);
 }
 
 /**
