@@ -7,7 +7,7 @@ import * as path from 'path';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import { createGunzip } from 'zlib';
-import { Extract } from 'tar';
+import { extract } from 'tar';
 import type { RegistryClient } from './client.js';
 import type { InstallResult, InstalledPackage, RegistryPackage } from './types.js';
 import type { SkillManager } from '../skills/loader.js';
@@ -70,7 +70,7 @@ export class RegistryInstaller {
       await pipeline(
         createReadStream(tarballPath),
         createGunzip(),
-        Extract({ cwd: tempDir, strip: 1 }),
+        extract({ cwd: tempDir, strip: 1 }),
       );
 
       // Clean up tarball
