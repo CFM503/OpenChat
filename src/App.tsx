@@ -619,6 +619,22 @@ export function App() {
     }
   }, []);  // H-11: No dependency on backendAvailable, using ref
 
+  // --- Retry handler: re-send the last user message ---
+  const handleRetryMessage = useCallback((assistantMsgId: string) => {
+    if (isStreaming) return;
+    // Find the assistant message and the user message before it
+    const idx = messages.findIndex(m => m.id === assistantMsgId);
+    if (idx < 1) return;
+    // Remove the assistant message and re-send the previous user message
+    const userMsg = messages.slice(0, idx).reverse().find(m => m.role === 'user');
+    if (!userMsg) return;
+    setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
+    // Re-send with same content and attachments
+    setTimeout(() => {
+      handleSendMessage(userMsg.content, userMsg.attachments || []);
+    }, 100);
+  }, [isStreaming, messages, handleSendMessage]);
+
   // --- Model handlers ---
   const handleAddModel = useCallback((config: ModelConfig) => {
     modelRouterRef.current.addModel(config);
@@ -807,6 +823,7 @@ export function App() {
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
+            onRetryMessage={handleRetryMessage}
             isStreaming={isStreaming}
             onStopStreaming={handleStopStreaming}
             webSearchEnabled={webSearchEnabled}

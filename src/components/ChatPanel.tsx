@@ -1,9 +1,47 @@
 // ============================================================================
 // ChatPanel Component
-// Handles message flow, stream parsing of <thinking> tags, collapsible accordion
+// Full markdown rendering, code syntax highlighting, retry, and skills
 // ============================================================================
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Marked } from 'marked';
+import hljs from 'highlight.js/lib/core';
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import json from 'highlight.js/lib/languages/json';
+import bash from 'highlight.js/lib/languages/bash';
+import css from 'highlight.js/lib/languages/css';
+import html from 'highlight.js/lib/languages/xml';
+import rust from 'highlight.js/lib/languages/rust';
+import go from 'highlight.js/lib/languages/go';
+import java from 'highlight.js/lib/languages/java';
+import sql from 'highlight.js/lib/languages/sql';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+
+// Register common languages
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('html', html);
+hljs.registerLanguage('xml', html);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
 import type { ChatMessage, ChatAttachment, ToolEvent, SkillInfo } from '../core/types';
 import { ToolOutput } from './ToolOutput';
 import { SkillPicker } from './SkillPicker';
@@ -12,6 +50,7 @@ import { backendClient } from '../services/api';
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string, attachments: ChatAttachment[]) => void;
+  onRetryMessage?: (assistantMsgId: string) => void;
   isStreaming: boolean;
   onStopStreaming?: () => void;
   webSearchEnabled?: boolean;
@@ -19,10 +58,39 @@ interface ChatPanelProps {
   hasSearchKey?: boolean;
 }
 
-// Collapsible thinking section component
+// ── Markdown Renderer ─────────────────────────────────────────────────────
+
+const marked = new Marked({
+  renderer: {
+    code({ text, lang }: { text: string; lang?: string }) {
+      const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+      const highlighted = lang
+        ? hljs.highlight(text, { language }).value
+        : hljs.highlightAuto(text).value;
+      return `<div class="code-block-wrapper"><pre><code class="hljs language-${language}">${highlighted}</code></pre><button class="code-copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},2000)})">Copy</button></div>`;
+    },
+    link({ href, text }: { href: string; text: string }) {
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+    table(token: any) {
+      return `<div class="table-wrapper"><table><thead>${token.header}</thead><tbody>${token.body}</tbody></table></div>`;
+    },
+  },
+});
+
+function renderMarkdown(content: string): string {
+  if (!content) return '';
+  try {
+    return marked.parse(content) as string;
+  } catch {
+    return content;
+  }
+}
+
+// ── Collapsible Thinking ──────────────────────────────────────────────────
+
 function CollapsibleThinking({ thinkingContent }: { thinkingContent: string }) {
   const [isExpanded, setIsExpanded] = useState(true);
-
   if (!thinkingContent || thinkingContent.trim().length === 0) return null;
 
   return (
@@ -35,157 +103,70 @@ function CollapsibleThinking({ thinkingContent }: { thinkingContent: string }) {
           </svg>
           Thinking Process
         </span>
-        <svg
-          className={`thinking-chevron ${isExpanded ? 'expanded' : ''}`}
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
+        <svg className={`thinking-chevron ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="9 18 15 12 9 6" />
         </svg>
       </div>
       {isExpanded && (
-        <div className="thinking-content">
-          {thinkingContent}
-        </div>
+        <div className="thinking-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(thinkingContent) }} />
       )}
     </div>
   );
 }
 
-// Simple copy button component for code blocks
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+// ── Message Copy Button ───────────────────────────────────────────────────
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button className="code-copy-btn" onClick={handleCopy}>
-      {copied ? 'Copied!' : 'Copy'}
-    </button>
-  );
-}
-
-// Copy button component for message bubbles
 function MessageCopyButton({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
   return (
     <button className="msg-copy-btn" onClick={handleCopy} title="Copy message content">
       {copied ? (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-success)' }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: 'var(--color-success)' }}>
           <polyline points="20 6 9 17 4 12" />
         </svg>
       ) : (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
       )}
-      <span style={{ color: copied ? 'var(--color-success)' : 'inherit' }}>
-        {copied ? 'Copied!' : 'Copy'}
-      </span>
+      <span style={{ color: copied ? 'var(--color-success)' : 'inherit' }}>{copied ? 'Copied!' : 'Copy'}</span>
     </button>
   );
 }
 
-// Simple HTML/Markdown custom renderer
-function renderContent(content: string): React.ReactNode[] {
-  if (!content) return [];
+// ── Retry Button ──────────────────────────────────────────────────────────
 
-  const parts: React.ReactNode[] = [];
-  const lines = content.split('\n');
-  let insideCodeBlock = false;
-  let codeBlockContent: string[] = [];
-  let codeBlockLang = '';
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.startsWith('```')) {
-      if (insideCodeBlock) {
-        // End of code block
-        const codeText = codeBlockContent.join('\n');
-        parts.push(
-          <pre key={`code-${i}`}>
-            <CopyButton text={codeText} />
-            <code className={codeBlockLang ? `language-${codeBlockLang}` : ''}>
-              {codeText}
-            </code>
-          </pre>
-        );
-        insideCodeBlock = false;
-        codeBlockContent = [];
-        codeBlockLang = '';
-      } else {
-        // Start of code block
-        insideCodeBlock = true;
-        codeBlockLang = line.slice(3).trim();
-      }
-      continue;
-    }
-
-    if (insideCodeBlock) {
-      codeBlockContent.push(line);
-      continue;
-    }
-
-    // Handle bolding, inline code, links in a simple line renderer
-    parts.push(<span key={`line-${i}`}>{renderLineContent(line)}<br /></span>);
-  }
-
-  return parts;
+function RetryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="msg-retry-btn" onClick={onClick} title="Retry this response">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="23 4 23 10 17 10" />
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+      </svg>
+      <span>Retry</span>
+    </button>
+  );
 }
 
-function renderLineContent(line: string): React.ReactNode {
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*)/g;
-  const parts = line.split(regex);
+// ── Helpers ───────────────────────────────────────────────────────────────
 
-  return parts.map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={index}>{part.slice(1, -1)}</code>;
-    }
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={index}>{part.slice(2, -2)}</strong>;
-    }
-    return part;
-  });
-}
-
-// Helper to format file size
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1048576).toFixed(1)} MB`;
 };
 
-// Collapsible Text File Card
-function TextAttachmentCard({
-  attachment,
-}: {
-  attachment: ChatAttachment;
-}) {
+function TextAttachmentCard({ attachment }: { attachment: ChatAttachment }) {
   const [isExpanded, setIsExpanded] = useState(false);
-
   return (
     <div className="message-attachment-file-card">
-      <div
-        className="message-attachment-file-header"
-        onClick={() => setIsExpanded(prev => !prev)}
-      >
+      <div className="message-attachment-file-header" onClick={() => setIsExpanded(prev => !prev)}>
         <div className="message-attachment-file-header-left">
           <span className="staged-attachment-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -196,12 +177,8 @@ function TextAttachmentCard({
               <polyline points="10 9 9 9 8 9" />
             </svg>
           </span>
-          <div className="message-attachment-file-name" title={attachment.name}>
-            {attachment.name}
-          </div>
-          <span className="message-attachment-file-size">
-            ({formatSize(attachment.size)})
-          </span>
+          <div className="message-attachment-file-name" title={attachment.name}>{attachment.name}</div>
+          <span className="message-attachment-file-size">({formatSize(attachment.size)})</span>
         </div>
         <span className={`message-attachment-file-toggle ${isExpanded ? 'expanded' : ''}`}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -210,17 +187,18 @@ function TextAttachmentCard({
         </span>
       </div>
       {isExpanded && (
-        <pre className="message-attachment-file-preview">
-          <code>{attachment.content}</code>
-        </pre>
+        <pre className="message-attachment-file-preview"><code>{attachment.content}</code></pre>
       )}
     </div>
   );
 }
 
+// ── Main ChatPanel ────────────────────────────────────────────────────────
+
 export function ChatPanel({
   messages,
   onSendMessage,
+  onRetryMessage,
   isStreaming,
   onStopStreaming = () => {},
   webSearchEnabled = false,
@@ -237,12 +215,10 @@ export function ChatPanel({
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [skillFilter, setSkillFilter] = useState('');
 
-  // Load skills on mount
   useEffect(() => {
     backendClient.getSkills().then(setSkills).catch(() => {});
   }, []);
 
-  // Detect "/" trigger in input
   useEffect(() => {
     if (inputText === '/') {
       setShowSkillPicker(true);
@@ -257,7 +233,6 @@ export function ChatPanel({
 
   const handleSkillSelect = async (skill: SkillInfo) => {
     setShowSkillPicker(false);
-    // Expand skill template
     const expanded = await backendClient.expandSkill(skill.name);
     if (expanded) {
       setInputText(expanded);
@@ -269,38 +244,21 @@ export function ChatPanel({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
     Array.from(files).forEach(file => {
       const isImage = file.type.startsWith('image/');
       const reader = new FileReader();
-
       reader.onload = (event) => {
-        const fileContent = event.target?.result as string;
-
-        const newAttachment: ChatAttachment = {
+        setStagedAttachments(prev => [...prev, {
           name: file.name,
           type: file.type || 'text/plain',
           size: file.size,
-          content: fileContent,
-        };
-
-        setStagedAttachments(prev => [...prev, newAttachment]);
+          content: event.target?.result as string,
+        }]);
       };
-
-      if (isImage) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
+      if (isImage) reader.readAsDataURL(file);
+      else reader.readAsText(file);
     });
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleTriggerUpload = () => {
-    fileInputRef.current?.click();
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleRemoveStaged = (index: number) => {
@@ -310,7 +268,6 @@ export function ChatPanel({
   const handleSend = () => {
     if (isStreaming) return;
     if (inputText.trim().length === 0 && stagedAttachments.length === 0) return;
-
     onSendMessage(inputText, stagedAttachments);
     setInputText('');
     setStagedAttachments([]);
@@ -332,7 +289,7 @@ export function ChatPanel({
       <div className="chat-header">
         <h3>AI Assistant</h3>
         {isStreaming && (
-          <div className="typing-indicator" id="typing-indicator">
+          <div className="typing-indicator">
             <span className="typing-dot" />
             <span className="typing-dot" />
             <span className="typing-dot" />
@@ -340,7 +297,7 @@ export function ChatPanel({
         )}
       </div>
 
-      <div className="chat-messages" id="chat-messages">
+      <div className="chat-messages">
         {messages.map((msg) => (
           <div key={msg.id} className={`message-item ${msg.role === 'user' ? 'user' : 'assistant'}`}>
             {msg.role === 'assistant' && msg.thinking && (
@@ -371,9 +328,7 @@ export function ChatPanel({
               </div>
             )}
             {msg.content && (
-              <div className="message-bubble">
-                {renderContent(msg.content)}
-              </div>
+              <div className="message-bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
             )}
             {msg.attachments && msg.attachments.length > 0 && (
               <div className="message-attachments">
@@ -382,26 +337,7 @@ export function ChatPanel({
                   if (isImg) {
                     return (
                       <div key={idx} className="message-attachment-image-wrapper">
-                        <img
-                          src={attach.content}
-                          alt={attach.name}
-                          className="message-attachment-image"
-                          onClick={() => {
-                            const w = window.open();
-                            if (!w) return;
-                            const doc = w.document;
-                            doc.open();
-                            doc.write('<!doctype html><html><head></head><body></body></html>');
-                            doc.close();
-                            doc.title = attach.name;
-                            const body = doc.body;
-                            body.style.cssText = 'margin:0; background:#0a0e1a; display:flex; align-items:center; justify-content:center; min-height:100vh;';
-                            const img = doc.createElement('img');
-                            img.src = attach.content;
-                            img.style.cssText = 'max-width:100%; max-height:100vh; object-fit:contain;';
-                            body.appendChild(img);
-                          }}
-                        />
+                        <img src={attach.content} alt={attach.name} className="message-attachment-image" />
                       </div>
                     );
                   } else {
@@ -412,12 +348,18 @@ export function ChatPanel({
             )}
             <div className="message-info">
               <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
-              <span>•</span>
+              <span>·</span>
               <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
               {msg.content && (
                 <>
-                  <span>•</span>
+                  <span>·</span>
                   <MessageCopyButton content={msg.content} />
+                </>
+              )}
+              {msg.role === 'assistant' && onRetryMessage && !isStreaming && (
+                <>
+                  <span>·</span>
+                  <RetryButton onClick={() => onRetryMessage(msg.id)} />
                 </>
               )}
             </div>
@@ -428,12 +370,7 @@ export function ChatPanel({
 
       <div className="chat-input-area">
         {showSkillPicker && skills.length > 0 && (
-          <SkillPicker
-            skills={skills}
-            filter={skillFilter}
-            onSelect={handleSkillSelect}
-            onClose={() => setShowSkillPicker(false)}
-          />
+          <SkillPicker skills={skills} filter={skillFilter} onSelect={handleSkillSelect} onClose={() => setShowSkillPicker(false)} />
         )}
         <div className="chat-input-wrapper">
           {stagedAttachments.length > 0 && (
@@ -456,11 +393,7 @@ export function ChatPanel({
                       <span className="staged-attachment-name" title={attach.name}>{attach.name}</span>
                       <span className="staged-attachment-size">{formatSize(attach.size)}</span>
                     </div>
-                    <button
-                      className="staged-attachment-remove"
-                      onClick={() => handleRemoveStaged(idx)}
-                      title="Remove file"
-                    >
+                    <button className="staged-attachment-remove" onClick={() => handleRemoveStaged(idx)} title="Remove">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
@@ -482,20 +415,8 @@ export function ChatPanel({
           />
           <div className="chat-input-footer">
             <div className="chat-input-actions">
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                multiple
-                onChange={handleFileChange}
-              />
-              <button
-                className="btn-icon-attach"
-                onClick={handleTriggerUpload}
-                disabled={isStreaming}
-                title="Attach files (images or text)"
-                type="button"
-              >
+              <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple onChange={handleFileChange} />
+              <button className="btn-icon-attach" onClick={() => fileInputRef.current?.click()} disabled={isStreaming} title="Attach files" type="button">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
@@ -504,7 +425,7 @@ export function ChatPanel({
                 className={`btn-web-search ${webSearchEnabled ? 'active' : ''}`}
                 onClick={() => onToggleWebSearch(!webSearchEnabled)}
                 disabled={isStreaming}
-                title={hasSearchKey ? (webSearchEnabled ? "Disable Web Search" : "Enable Web Search") : "Enable Web Search (Tavily API Key is missing, configure in Settings)"}
+                title={hasSearchKey ? (webSearchEnabled ? 'Disable Web Search' : 'Enable Web Search') : 'Web Search (needs API key in Settings)'}
                 type="button"
                 id="btn-web-search-toggle"
               >
@@ -516,24 +437,14 @@ export function ChatPanel({
               </button>
             </div>
             {isStreaming ? (
-              <button
-                className="btn-primary"
-                onClick={onStopStreaming}
-                id="chat-stop-btn"
-                style={{ background: 'var(--color-error)' }}
-              >
+              <button className="btn-primary" onClick={onStopStreaming} style={{ background: 'var(--color-error)' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
                 <span>Stop</span>
               </button>
             ) : (
-              <button
-                className="btn-primary"
-                onClick={handleSend}
-                disabled={inputText.trim().length === 0 && stagedAttachments.length === 0}
-                id="chat-send-btn"
-              >
+              <button className="btn-primary" onClick={handleSend} disabled={inputText.trim().length === 0 && stagedAttachments.length === 0} id="chat-send-btn">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <line x1="22" y1="2" x2="11" y2="13" />
                   <polygon points="22 2 15 22 11 13 2 9 22 2" />
