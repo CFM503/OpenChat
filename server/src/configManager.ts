@@ -29,6 +29,7 @@ export interface ModelConfig {
   maxTokens: number;
   temperature: number;
   isDefault: boolean;
+  disableTools?: boolean;
 }
 
 /** Validate config structure before writing. Returns error string or null. */

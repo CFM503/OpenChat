@@ -16,6 +16,7 @@ export interface ModelConfig {
   maxTokens: number;
   temperature: number;
   isDefault: boolean;
+  disableTools?: boolean;
 }
 
 export interface ModelRouteRequest {

@@ -34,7 +34,11 @@ export class AgentLoop {
    */
   async run(params: AgentLoopParams): Promise<void> {
     const { messages, modelId, signal, onEvent } = params;
-    const toolDefs = this.tools.toFunctionDefinitions();
+
+    // Check if tools are disabled for this model
+    const model = this.providers.getActiveModel(modelId);
+    const toolsDisabled = model?.disableTools === true;
+    const toolDefs = toolsDisabled ? [] : this.tools.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
     // Always convert images to text descriptions — the LLM provider may not support

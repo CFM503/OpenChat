@@ -37,6 +37,7 @@ export function ModelConfigPanel({
   const [formMaxTokens, setFormMaxTokens] = useState(4096);
   const [formTemperature, setFormTemperature] = useState(0.7);
   const [formIsDefault, setFormIsDefault] = useState(false);
+  const [formDisableTools, setFormDisableTools] = useState(false);
 
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -66,6 +67,7 @@ export function ModelConfigPanel({
     setFormMaxTokens(model.maxTokens);
     setFormTemperature(model.temperature);
     setFormIsDefault(model.isDefault);
+    setFormDisableTools(model.disableTools ?? false);
     setErrors([]);
   };
 
@@ -81,6 +83,7 @@ export function ModelConfigPanel({
     setFormMaxTokens(4096);
     setFormTemperature(0.7);
     setFormIsDefault(false);
+    setFormDisableTools(false);
     setErrors([]);
   };
 
@@ -97,6 +100,7 @@ export function ModelConfigPanel({
       maxTokens: formMaxTokens,
       temperature: formTemperature,
       isDefault: formIsDefault,
+      disableTools: formDisableTools,
     };
 
     const validationErrors = ModelRouter.validateConfig(config);
@@ -295,6 +299,18 @@ export function ModelConfigPanel({
             />
             <label htmlFor="model-isdefault-checkbox" style={{ cursor: 'pointer' }}>
               Set as provider default
+            </label>
+          </div>
+
+          <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={formDisableTools}
+              onChange={e => setFormDisableTools(e.target.checked)}
+              id="model-disabletools-checkbox"
+            />
+            <label htmlFor="model-disabletools-checkbox" style={{ cursor: 'pointer' }}>
+              Disable tools (for models that don't support function calling)
             </label>
           </div>
 
