@@ -129,6 +129,16 @@ export class AgentLoop {
       llmMessages.unshift({ role: 'user', content: 'Continue.' });
     }
 
+    // Limit history to prevent context overflow on small models
+    const MAX_HISTORY_MESSAGES = 20;
+    if (llmMessages.length > MAX_HISTORY_MESSAGES) {
+      llmMessages = llmMessages.slice(-MAX_HISTORY_MESSAGES);
+      // Ensure first message is still from user after truncation
+      if (llmMessages[0].role === 'assistant') {
+        llmMessages[0] = { role: 'user', content: '[Previous messages truncated]' };
+      }
+    }
+
     const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,

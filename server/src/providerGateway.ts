@@ -136,7 +136,16 @@ export class ProviderGateway {
     if (!resp.ok) {
       const errBody = await resp.text();
       const sanitized = errBody.replace(/sk-[a-zA-Z0-9_-]{20,}/g, 'sk-***');
-      throw new Error(`Provider error (${resp.status}): ${sanitized}`);
+      // Provide helpful hints for common errors
+      let hint = '';
+      if (resp.status === 500) {
+        hint = ' — model may have run out of context. Try reducing Max Tokens in model settings.';
+      } else if (resp.status === 404) {
+        hint = ' — check model name and endpoint URL.';
+      } else if (resp.status === 401 || resp.status === 403) {
+        hint = ' — check API key.';
+      }
+      throw new Error(`Provider error (${resp.status})${hint}: ${sanitized.substring(0, 500)}`);
     }
 
     if (!resp.body) {
