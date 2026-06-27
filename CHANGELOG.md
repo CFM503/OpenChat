@@ -4,6 +4,35 @@ All notable changes to the **OpenChat** project will be documented in this file.
 
 ---
 
+## [2.0.0-alpha.10] - 2026-06-27
+
+### Added
+- **Conversation History Sidebar**:
+  - Session list with new chat button, click to switch, hover to delete
+  - Auto-create session on first message, auto-save on message change (debounced 1s)
+  - Backend: `POST /api/sessions` (create), `PUT /api/sessions/:id` (update)
+  - Sidebar toggles with collapse button
+
+- **Disable Tools Option**:
+  - New "Disable tools" checkbox in model config form for models that don't support function calling
+  - When enabled, agent loop skips sending tool definitions to the LLM
+  - Fixes small models (e.g., Gemma-3-4b) generating empty tool calls
+  - Does NOT affect models that support function calling (default: off)
+
+### Fixed
+- **Dark Mode Select Dropdown**: Added `color-scheme: dark` and styled `option` elements for model selector and settings form selects
+- **LM Studio CORS**: Browser `fetch()` sends OPTIONS preflight which LM Studio rejects; now all API calls route through backend gateway
+- **Message History Overflow**: Limit conversation history to 20 messages to prevent context overflow on small models
+- **Error Messages**: 500 errors now hint "try reducing Max Tokens"; error body truncated to 500 chars
+- **Message Sanitization**: Remove empty messages, merge consecutive same-role messages, ensure strict user/assistant alternation for Gemma compatibility
+- **Proxy Toggle**: Added `proxyEnabled` boolean with toggle switch in Network settings
+- **Config Sync**: Fixed localStorage→backend sync missing `proxyUrl` and `proxyEnabled` fields
+- **API Key Optional**: API key now optional for all providers (LM Studio, local proxies)
+- **`tar` Module Import**: Fixed ESM import (lowercase `extract` not `Extract`)
+- **`concurrently` Package**: Added as dev dependency for `npm run dev:all`
+
+---
+
 ## [2.0.0-alpha.8] - 2026-06-26
 
 ### Added
