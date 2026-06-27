@@ -120,6 +120,9 @@ export function App() {
   const [proxyUrl, setProxyUrl] = useState(() => {
     return localStorage.getItem('openchat_proxy_url') || '';
   });
+  const [proxyEnabled, setProxyEnabled] = useState(() => {
+    return localStorage.getItem('openchat_proxy_enabled') === 'true';
+  });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [backendAvailable, setBackendAvailable] = useState(false);
 
@@ -187,6 +190,9 @@ export function App() {
             if (config.proxyUrl !== undefined) {
               setProxyUrl(config.proxyUrl);
             }
+            if ((config as any).proxyEnabled !== undefined) {
+              setProxyEnabled((config as any).proxyEnabled);
+            }
           } else if (localModels) {
             // Backend empty but localStorage has data — sync localStorage → backend
             try {
@@ -226,6 +232,7 @@ export function App() {
     localStorage.setItem('openchat_search_api_key', searchApiKey);
     localStorage.setItem('openchat_search_base_url', searchBaseUrl);
     localStorage.setItem('openchat_proxy_url', proxyUrl);
+    localStorage.setItem('openchat_proxy_enabled', String(proxyEnabled));
 
     const timer = setTimeout(async () => {
       try {
@@ -242,6 +249,7 @@ export function App() {
             searchApiKey,
             searchBaseUrl,
             proxyUrl,
+            proxyEnabled,
           }),
         });
       } catch (err) {
@@ -250,7 +258,7 @@ export function App() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, isConfigLoaded]);
+  }, [models, activeModelId, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, proxyUrl, proxyEnabled, isConfigLoaded]);
 
   const hasSearchKey = searchProvider === 'searxng' ? !!searchBaseUrl.trim() : !!searchApiKey.trim();
 
@@ -492,7 +500,7 @@ export function App() {
       if (canMakeRealRequest(activeConfig)) {
         // If proxy is configured, requests MUST go through the backend gateway
         // (browser fetch doesn't support proxies)
-        if (proxyUrl && proxyUrl.trim()) {
+        if (proxyEnabled && proxyUrl && proxyUrl.trim()) {
           // Try to reconnect to backend
           const reconnected = await backendClient.connect();
           if (reconnected) {
@@ -509,7 +517,7 @@ export function App() {
             });
             if (sent) return;
           }
-          accumulatedContent += `\n\n⚠️ **Proxy Error**: Proxy is configured but backend is not running. Start the backend server (\`npm run dev:server\`) to use proxy.`;
+          accumulatedContent += `\n\n⚠️ **Proxy Error**: Proxy is enabled but backend is not running. Start the backend server (\`npm run dev:server\`) to use proxy.`;
           handleDone();
           return;
         }
@@ -538,7 +546,7 @@ export function App() {
         );
       }
     },
-    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl]
+    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl, proxyEnabled]
   );
 
   // --- Stop streaming handler ---
@@ -817,7 +825,9 @@ export function App() {
                 {settingsTab === 'network' && (
                   <NetworkSettings
                     proxyUrl={proxyUrl}
+                    proxyEnabled={proxyEnabled}
                     onUpdateProxyUrl={setProxyUrl}
+                    onUpdateProxyEnabled={setProxyEnabled}
                   />
                 )}
                 {settingsTab === 'extensions' && (

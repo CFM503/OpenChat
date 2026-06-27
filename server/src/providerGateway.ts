@@ -41,6 +41,11 @@ export class ProviderGateway {
    */
   private getProxyDispatcher(): ProxyAgent | undefined {
     const cfg = this.config.load();
+    if (!cfg.proxyEnabled) {
+      this.proxyAgent = undefined;
+      this.cachedProxyUrl = undefined;
+      return undefined;
+    }
     const url = cfg.proxyUrl?.trim();
     if (!url) {
       this.proxyAgent = undefined;

@@ -14,6 +14,7 @@ export interface OpenChatConfig {
   searchApiKey?: string;
   searchBaseUrl?: string;
   proxyUrl?: string;
+  proxyEnabled?: boolean;
   mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
   registries?: string[];
 }
