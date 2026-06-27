@@ -210,7 +210,7 @@ describe('normalizeEndpoint', () => {
       'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
     );
     expect(normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta')).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/chat/completions'
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
     );
   });
 

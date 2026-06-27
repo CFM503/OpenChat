@@ -25,35 +25,22 @@ import type { ModelConfig, ModelProvider, ChatMessage } from './types';
  *   https://api.example.com/v1/chat/completions/ → (trailing slash removed)
  */
 export function normalizeEndpoint(url: string): string {
-  // Trim whitespace and trailing slashes
   let normalized = url.trim().replace(/\/+$/, '');
 
-  // Already ends with /chat/completions — done
-  if (normalized.endsWith('/chat/completions')) {
-    return normalized;
-  }
+  if (normalized.endsWith('/chat/completions')) return normalized;
+  if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
 
-  // Ends with /v1 — just append /chat/completions
-  if (normalized.endsWith('/v1')) {
-    return normalized + '/chat/completions';
-  }
-
-  // Check if URL has a path with API version prefix (e.g., /v1beta, /v1alpha, /v1beta/openai)
   try {
     const parsed = new URL(normalized);
     const p = parsed.pathname.replace(/\/+$/, '');
-    if (/^\/v\d+/.test(p)) {
-      return normalized + '/chat/completions';
-    }
-    // Other non-root paths (e.g., Ollama /api/generate) — don't modify
-    if (p !== '' && p !== '/') {
-      return normalized;
-    }
+    if (/\/openai$/i.test(p)) return normalized + '/chat/completions';
+    if (/^\/v\d+\w*$/.test(p)) return normalized + '/openai/chat/completions';
+    if (/^\/v\d+\w*\/openai/.test(p)) return normalized + '/chat/completions';
+    if (p !== '' && p !== '/') return normalized;
   } catch {
     // Not a valid URL, proceed with normalization
   }
 
-  // Bare domain → append full /v1/chat/completions
   return normalized + '/v1/chat/completions';
 }
 

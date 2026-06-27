@@ -206,7 +206,14 @@ export class AgentLoop {
       }
 
       // Build the assistant message with tool_calls
-      const toolCalls = Array.from(toolCallsAccumulator.values());
+      const toolCalls = Array.from(toolCallsAccumulator.values())
+        .filter(tc => tc.name && tc.name.trim().length > 0);  // Filter out invalid tool calls with empty names
+
+      // If no valid tool calls remain, treat as done
+      if (toolCalls.length === 0) {
+        onEvent({ type: 'done' });
+        return;
+      }
       llmMessages.push({
         role: 'assistant',
         content: responseContent,

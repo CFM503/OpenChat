@@ -302,8 +302,16 @@ function normalizeEndpoint(url: string): string {
   try {
     const parsed = new URL(normalized);
     const p = parsed.pathname.replace(/\/+$/, '');
-    // API version prefix → append /chat/completions (e.g., /v1beta, /v1alpha, /v1/proxy)
-    if (/^\/v\d+/.test(p)) {
+    // Check if path already contains /openai or similar sub-path before appending
+    if (/\/openai$/i.test(p)) {
+      return normalized + '/chat/completions';
+    }
+    // API version prefix only (e.g., /v1beta, /v1alpha) → append /openai/chat/completions
+    if (/^\/v\d+\w*$/.test(p)) {
+      return normalized + '/openai/chat/completions';
+    }
+    // Path like /v1beta/openai → append /chat/completions
+    if (/^\/v\d+\w*\/openai/.test(p)) {
       return normalized + '/chat/completions';
     }
     // Complete endpoint path (Ollama /api/generate, /api/chat, etc.) → don't modify
