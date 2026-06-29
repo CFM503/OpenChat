@@ -119,7 +119,7 @@ describe('ModelRouter Gateway', () => {
     };
 
     const errors2 = ModelRouter.validateConfig(invalidConfig2);
-    expect(errors2).toContain('Max tokens must be between 1 and 128000');
+    expect(errors2).toContain('Max tokens must be between 1 and 1,000,000');
     expect(errors2).toContain('Temperature must be between 0 and 2');
   });
 

@@ -51,8 +51,8 @@ export function validateConfig(data: unknown): string | null {
           return `Model.${key} must be a non-empty string`;
       }
       // maxTokens and temperature: required, must be finite numbers
-      if (typeof model.maxTokens !== 'number' || !Number.isFinite(model.maxTokens) || model.maxTokens < 1)
-        return 'Model.maxTokens must be a finite positive number';
+      if (typeof model.maxTokens !== 'number' || !Number.isFinite(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > 1000000)
+        return 'Model.maxTokens must be a finite number between 1 and 1,000,000';
       if (typeof model.temperature !== 'number' || !Number.isFinite(model.temperature) || model.temperature < 0 || model.temperature > 2)
         return 'Model.temperature must be a finite number between 0 and 2';
       if (model.isDefault !== undefined && typeof model.isDefault !== 'boolean')

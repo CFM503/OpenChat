@@ -55,7 +55,7 @@ export function ModelConfigPanel({
     setFormEndpoint(preset.endpoint);
     setFormApiKey('');
     setFormModel(preset.model);
-    setFormMaxTokens(4096);
+    setFormMaxTokens(131072);
     setFormTemperature(0.7);
     setFormIsDefault(false);
     setFormDisableTools(false);
@@ -134,7 +134,7 @@ export function ModelConfigPanel({
     setFormEndpoint('https://api.openai.com/v1');
     setFormApiKey('');
     setFormModel('');
-    setFormMaxTokens(4096);
+    setFormMaxTokens(131072);
     setFormTemperature(0.7);
     setFormIsDefault(false);
     setFormDisableTools(false);
@@ -419,11 +419,11 @@ export function ModelConfigPanel({
 
           <div className="form-row">
             <div className="form-group">
-              <label>Max Tokens ({formMaxTokens})</label>
+              <label>Max Tokens ({formMaxTokens.toLocaleString()})</label>
               <input
                 type="range"
                 min="256"
-                max="16384"
+                max="1048576"
                 step="256"
                 value={formMaxTokens}
                 onChange={e => setFormMaxTokens(parseInt(e.target.value))}

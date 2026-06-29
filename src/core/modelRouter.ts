@@ -55,7 +55,7 @@ export const DEFAULT_MODELS: ModelConfig[] = [
     endpoint: 'https://api.openai.com/v1/chat/completions',
     apiKey: '',
     model: 'gpt-4o',
-    maxTokens: 4096,
+    maxTokens: 131072,
     temperature: 0.7,
     isDefault: true,
   },
@@ -65,7 +65,7 @@ export const DEFAULT_MODELS: ModelConfig[] = [
     provider: 'ollama',
     endpoint: 'http://localhost:11434/api/chat',
     model: 'llama3',
-    maxTokens: 4096,
+    maxTokens: 131072,
     temperature: 0.7,
     isDefault: false,
   },
@@ -433,8 +433,8 @@ export class ModelRouter {
     if (!config.model || config.model.trim().length === 0) {
       errors.push('Model identifier is required');
     }
-    if (config.maxTokens !== undefined && (config.maxTokens < 1 || config.maxTokens > 128000)) {
-      errors.push('Max tokens must be between 1 and 128000');
+    if (config.maxTokens !== undefined && (config.maxTokens < 1 || config.maxTokens > 1000000)) {
+      errors.push('Max tokens must be between 1 and 1,000,000');
     }
     if (config.temperature !== undefined && (config.temperature < 0 || config.temperature > 2)) {
       errors.push('Temperature must be between 0 and 2');
