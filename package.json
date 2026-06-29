@@ -1,7 +1,7 @@
 {
   "name": "openchat",
   "private": true,
-  "version": "2.0.0-alpha.12",
+  "version": "2.0.0-alpha.13",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,7 +26,8 @@
     "tsx": "^4.22.4",
     "typescript": "~6.0.2",
     "vite": "^8.1.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "@types/bun": "latest"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.6",

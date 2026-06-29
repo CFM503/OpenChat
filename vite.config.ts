@@ -71,22 +71,46 @@ function localConfigPlugin() {
 }
 
 export default defineConfig(async () => {
+  // Check if default ports are occupied before starting
   const defaultPort = 3000;
-  const isOccupied = await checkPortInUse(defaultPort);
+  const backendPort = 3001;
 
-  if (isOccupied) {
-    console.warn('\n' + '='.repeat(60));
-    console.warn(`⚠️  [Warning] Port ${defaultPort} is already in use by another process.`);
-    console.warn(`   Vite will automatically allocate a new port (e.g., ${defaultPort + 1}).`);
-    console.warn('='.repeat(60) + '\n');
+  const port3000Occupied = await checkPortInUse(defaultPort);
+  const port3001Occupied = await checkPortInUse(backendPort);
+
+  if (port3000Occupied && port3001Occupied) {
+    console.error('\n' + '='.repeat(60));
+    console.error(`❌ Both ports 3000 (frontend) and 3001 (backend) are in use.`);
+    console.error(`   Stop the conflicting processes before running dev:all.`);
+    console.error('='.repeat(60) + '\n');
+    process.exit(1);
+  }
+  if (port3000Occupied) {
+    console.error('\n' + '='.repeat(60));
+    console.error(`❌ Port 3000 (frontend) is in use. Cannot start Vite.`);
+    console.error(`   Windows: netstat -ano | findstr :3000`);
+    console.error(`            taskkill /F /PID <PID>`);
+    console.error('='.repeat(60) + '\n');
+    process.exit(1);
+  }
+  if (port3001Occupied) {
+    console.warn(`⚠️  Backend port 3001 is in use. API/WebSocket calls may fail.`);
   }
 
   return {
-    plugins: [react()],
+    plugins: [react(), localConfigPlugin()],
     server: {
       port: defaultPort,
-      open: true,
-      host: 'localhost',  // L-12: Don't bind to 0.0.0.0
+      strictPort: true,
+      open: false,
+      host: '0.0.0.0',  // Bind to all interfaces (IPv4 + IPv6)
+      onListening(server) {
+        const addr = server.address();
+        if (addr && typeof addr === 'object') {
+          console.log(`   ➜  Frontend: http://localhost:${addr.port}/`);
+          console.log(`   ➜  Backend:  http://localhost:${backendPort}/`);
+        }
+      },
       proxy: {
         // Proxy /api and /ws to backend when it's running
         '/api': {
