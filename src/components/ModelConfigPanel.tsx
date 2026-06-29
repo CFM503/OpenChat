@@ -418,18 +418,38 @@ export function ModelConfigPanel({
           </div>
 
           <div className="form-row">
-            <div className="form-group">
+            <div className="form-group" style={{ minWidth: 0 }}>
               <label>Max Tokens ({formMaxTokens.toLocaleString()})</label>
-              <input
-                type="range"
-                min="4096"
-                max="1048576"
-                step="4096"
-                value={formMaxTokens}
-                onChange={e => setFormMaxTokens(parseInt(e.target.value))}
-                style={{ accentColor: 'var(--accent-color)' }}
-                id="model-maxtokens-input"
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="range"
+                  min="4096"
+                  max="1048576"
+                  step="4096"
+                  value={formMaxTokens}
+                  onChange={e => setFormMaxTokens(parseInt(e.target.value))}
+                  style={{ accentColor: 'var(--accent-color)', flex: 1 }}
+                  id="model-maxtokens-input"
+                />
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setFormMaxTokens(Math.max(4096, formMaxTokens - 4096))}
+                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
+                  title="Decrease by 4096"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setFormMaxTokens(Math.min(1048576, formMaxTokens + 4096))}
+                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
+                  title="Increase by 4096"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <div className="form-group">
               <label>Temperature ({formTemperature.toFixed(2)})</label>
