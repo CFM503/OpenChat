@@ -422,9 +422,9 @@ export function ModelConfigPanel({
               <label>Max Tokens ({formMaxTokens.toLocaleString()})</label>
               <input
                 type="range"
-                min="256"
+                min="4096"
                 max="1048576"
-                step="256"
+                step="4096"
                 value={formMaxTokens}
                 onChange={e => setFormMaxTokens(parseInt(e.target.value))}
                 style={{ accentColor: 'var(--accent-color)' }}
