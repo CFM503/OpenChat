@@ -1153,7 +1153,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   width: 90%;
-  max-width: 600px;
+  max-width: 800px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: slideDown var(--transition-normal);
