@@ -317,9 +317,9 @@ export function ModelConfigPanel({
               className="form-input"
               value={formEndpoint}
               onChange={e => { setFormEndpoint(e.target.value); setDetectedModels([]); }}
-              onBlur={() => {
-                if (formProvider !== 'ollama' && formEndpoint.trim()) {
-                  setFormEndpoint(normalizeEndpoint(formEndpoint));
+              onBlur={e => {
+                if (formProvider !== 'ollama' && e.target.value.trim()) {
+                  setFormEndpoint(normalizeEndpoint(e.target.value.trim()));
                 }
               }}
               placeholder="https://api.example.com/v1"

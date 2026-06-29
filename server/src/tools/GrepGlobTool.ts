@@ -239,7 +239,7 @@ function matchesGlob(filepath: string, pattern: string): boolean {
     .replace(/\*\*/g, '{{GLOBSTAR}}')
     .replace(/\*/g, '[^/]*')
     .replace(/\?/g, '[^/]')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
+    .replace(/\{\{GLOBSTAR\}\}/g, '(?:[^/]*\/)*');
 
   const regex = new RegExp(`^${regexStr}$`);
   return regex.test(fp);

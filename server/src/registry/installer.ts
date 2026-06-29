@@ -70,7 +70,15 @@ export class RegistryInstaller {
       await pipeline(
         createReadStream(tarballPath),
         createGunzip(),
-        extract({ cwd: tempDir, strip: 1 }),
+        extract({
+          cwd: tempDir,
+          strip: 1,
+          filter: (filePath, stat) => {
+            // Resolve the extracted path and ensure it stays within tempDir
+            const resolved = path.resolve(tempDir, filePath);
+            return resolved.startsWith(tempDir);
+          },
+        }),
       );
 
       // Clean up tarball

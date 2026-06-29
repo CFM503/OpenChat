@@ -139,6 +139,8 @@ export function App() {
   const taskManagerRef = useRef(new TaskManager());
   const streamAbortRef = useRef<AbortController | null>(null);
   const backendAvailableRef = useRef(false);  // H-11: Ref for stale closure fix
+  const messagesRef = useRef(messages);  // Ref to always access latest messages
+  messagesRef.current = messages;  // Keep ref in sync
 
   // --- Effects ---
   // Check backend availability on mount
@@ -296,10 +298,13 @@ export function App() {
 
   // Session handlers
   const handleNewSession = useCallback(async () => {
-    // Save current session if needed
+    // Save current session before clearing
+    if (activeSessionId && messages.length > 0) {
+      await backendClient.updateSession(activeSessionId, messages).catch(() => {});
+    }
     setMessages([]);
     setActiveSessionId(null);
-  }, []);
+  }, [activeSessionId, messages]);
 
   const handleSelectSession = useCallback(async (id: string) => {
     const session = await backendClient.getSession(id);
@@ -440,7 +445,7 @@ export function App() {
         streamAbortRef.current = null;
       };
 
-      let injectedMessages = [...messages, userMsg];
+      let injectedMessages = [...messagesRef.current, userMsg];
 
       if (webSearchEnabled && hasSearchKey) {
         // Set state to "Searching..."
@@ -470,7 +475,7 @@ export function App() {
             timestamp: Date.now(),
           };
           
-          injectedMessages = [...messages, systemMsg, userMsg];
+          injectedMessages = [...messagesRef.current, systemMsg, userMsg];
           
           // Clear "Searching..." so assistant content starts fresh
           setMessages(prev =>
@@ -609,11 +614,11 @@ export function App() {
           injectedMessages,
           handleChunk,
           handleDone,
-          { speed: 60 }
+          { speed: 60, signal: abortController.signal }
         );
       }
     },
-    [isStreaming, activeModelId, messages, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl, proxyEnabled, ensureSession]
+    [isStreaming, activeModelId, messagesRef, webSearchEnabled, searchProvider, searchApiKey, searchBaseUrl, hasSearchKey, proxyUrl, proxyEnabled, ensureSession]
   );
 
   // --- Stop streaming handler ---
@@ -629,18 +634,17 @@ export function App() {
   // --- Retry handler: re-send the last user message ---
   const handleRetryMessage = useCallback((assistantMsgId: string) => {
     if (isStreaming) return;
-    // Find the assistant message and the user message before it
-    const idx = messages.findIndex(m => m.id === assistantMsgId);
+    const msgs = messagesRef.current;
+    const idx = msgs.findIndex(m => m.id === assistantMsgId);
     if (idx < 1) return;
-    // Remove the assistant message and re-send the previous user message
-    const userMsg = messages.slice(0, idx).reverse().find(m => m.role === 'user');
+    const userMsg = msgs.slice(0, idx).reverse().find(m => m.role === 'user');
     if (!userMsg) return;
     setMessages(prev => prev.filter(m => m.id !== assistantMsgId));
     // Re-send with same content and attachments
     setTimeout(() => {
       handleSendMessage(userMsg.content, userMsg.attachments || []);
     }, 100);
-  }, [isStreaming, messages, handleSendMessage]);
+  }, [isStreaming, handleSendMessage]);
 
   // --- Model handlers ---
   const handleAddModel = useCallback((config: ModelConfig) => {

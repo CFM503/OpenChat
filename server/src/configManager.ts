@@ -111,8 +111,8 @@ export class ConfigManager {
   }
 
   /**
-   * Save config with merge: preserves API keys from existing config
-   * when the incoming config doesn't include them or sends masked/empty values.
+   * Save config with merge: preserves fields from existing config
+   * when the incoming config omits them or sends masked/empty values.
    * This prevents config corruption from round-trip GET→POST cycles.
    */
   saveWithMerge(incoming: OpenChatConfig): void {
@@ -136,8 +136,29 @@ export class ConfigManager {
         }
         return m;
       });
-    } else if (incoming.models && !existing.models && incoming.models.length > 0) {
-      // First save — no existing models, keep as-is
+    }
+
+    // Preserve top-level fields that the frontend may not send in every update
+    if (!incoming.mcpServers && existing.mcpServers) {
+      incoming.mcpServers = existing.mcpServers;
+    }
+    if (!incoming.registries && existing.registries) {
+      incoming.registries = existing.registries;
+    }
+    if (!incoming.allowedDirectories && existing.allowedDirectories) {
+      incoming.allowedDirectories = existing.allowedDirectories;
+    }
+    if (incoming.webSearchEnabled === undefined && existing.webSearchEnabled !== undefined) {
+      incoming.webSearchEnabled = existing.webSearchEnabled;
+    }
+    if (!incoming.proxyUrl && existing.proxyUrl) {
+      incoming.proxyUrl = existing.proxyUrl;
+    }
+    if (incoming.proxyEnabled === undefined && existing.proxyEnabled !== undefined) {
+      incoming.proxyEnabled = existing.proxyEnabled;
+    }
+    if (!incoming.activeModelId && existing.activeModelId) {
+      incoming.activeModelId = existing.activeModelId;
     }
 
     this.writeAtomic(incoming);

@@ -116,11 +116,23 @@ export class SkillManager {
    * Create a new user skill. Saves to disk.
    */
   async create(metadata: SkillMetadata, content: string): Promise<Skill> {
+    // Validate name: only alphanumeric, underscore, hyphen — no path traversal
+    if (!/^[a-zA-Z0-9_-]+$/.test(metadata.name)) {
+      throw new Error('Skill name must contain only alphanumeric characters, underscores, and hyphens');
+    }
+
+    const fileName = `${metadata.name}.md`;
+    const resolvedPath = path.resolve(path.join(this.userDir, fileName));
+    const resolvedDir = path.resolve(this.userDir);
+    if (!resolvedPath.startsWith(resolvedDir)) {
+      throw new Error('Invalid skill name: path traversal detected');
+    }
+
     const skill: Skill = {
       ...metadata,
       builtin: false,
       content,
-      filePath: path.join(this.userDir, `${metadata.name}.md`),
+      filePath: resolvedPath,
     };
 
     const fileContent = `---

@@ -117,7 +117,7 @@ export async function simulateStream(
   _messages: ChatMessage[],
   onChunk: (chunk: string) => void,
   onDone: () => void,
-  options?: { speed?: number }
+  options?: { speed?: number; signal?: AbortSignal }
 ): Promise<void> {
   const speed = options?.speed ?? 8;
   const responseIndex = Math.floor(Math.random() * DEMO_RESPONSES.length);
@@ -126,7 +126,11 @@ export async function simulateStream(
   // Stream in variable-sized chunks to simulate realistic network behavior
   let i = 0;
   while (i < fullText.length) {
-    // Random chunk size between 1 and 8 characters
+    // Check abort signal
+    if (options?.signal?.aborted) {
+      return;
+    }
+
     const chunkSize = Math.floor(Math.random() * 8) + 1;
     const chunk = fullText.slice(i, i + chunkSize);
     onChunk(chunk);
@@ -135,10 +139,18 @@ export async function simulateStream(
     // Variable delay to simulate network latency
     const baseDelay = 1000 / speed;
     const jitter = Math.random() * baseDelay * 0.5;
-    await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, baseDelay + jitter);
+      options?.signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
   }
 
-  onDone();
+  if (!options?.signal?.aborted) {
+    onDone();
+  }
 }
 
 /**

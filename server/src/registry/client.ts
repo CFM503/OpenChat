@@ -2,15 +2,27 @@
 // Registry Client — Fetch packages from remote registries
 // ============================================================================
 
-import type { RegistryPackage, RegistryResponse } from './types.js';
+import { ProxyAgent } from 'undici';
 
 export class RegistryClient {
   private registries: string[];
   private proxyUrl?: string;
+  private proxyAgent: ProxyAgent | undefined;
 
   constructor(registries: string[], proxyUrl?: string) {
     this.registries = registries;
     this.proxyUrl = proxyUrl;
+    if (proxyUrl) {
+      this.proxyAgent = new ProxyAgent(proxyUrl);
+    }
+  }
+
+  /**
+   * Refresh proxy agent when proxyUrl changes (called from config).
+   */
+  updateProxyUrl(url?: string) {
+    this.proxyUrl = url;
+    this.proxyAgent = url ? new ProxyAgent(url) : undefined;
   }
 
   /**
@@ -88,17 +100,9 @@ export class RegistryClient {
       signal: AbortSignal.timeout(15000),
     };
 
-    // Use proxy if configured and available
-    if (this.proxyUrl) {
-      try {
-        // Dynamic import would be needed for undici ProxyAgent,
-        // but for simplicity we use native fetch with proxy support
-        // via environment variable
-        process.env.HTTP_PROXY = this.proxyUrl;
-        process.env.HTTPS_PROXY = this.proxyUrl;
-      } catch {
-        // Ignore proxy setup errors
-      }
+    // Use proxy if configured
+    if (this.proxyAgent) {
+      (options as any).dispatcher = this.proxyAgent;
     }
 
     return globalThis.fetch(url, options);
