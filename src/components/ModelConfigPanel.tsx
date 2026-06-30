@@ -24,58 +24,70 @@ export function ModelConfigPanel({
   onDeleteModel,
   onSetActive,
 }: ModelConfigPanelProps) {
+  interface FormState {
+    formId: string;
+    formName: string;
+    formProvider: ModelProvider;
+    formEndpoint: string;
+    formApiKey: string;
+    formModel: string;
+    formMaxTokens: number;
+    formTemperature: number;
+    formIsDefault: boolean;
+    formDisableTools: boolean;
+  }
+
+  const blankForm: FormState = {
+    formId: '', formName: '', formProvider: 'openai', formEndpoint: '',
+    formApiKey: '', formModel: '', formMaxTokens: 4096, formTemperature: 0.7,
+    formIsDefault: false, formDisableTools: false,
+  };
+
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showPresets, setShowPresets] = useState(false);
-
-  // Form states
-  const [formId, setFormId] = useState('');
-  const [formName, setFormName] = useState('');
-  const [formProvider, setFormProvider] = useState<ModelProvider>('openai');
-  const [formEndpoint, setFormEndpoint] = useState('');
-  const [formApiKey, setFormApiKey] = useState('');
-  const [formModel, setFormModel] = useState('');
-  const [formMaxTokens, setFormMaxTokens] = useState(4096);
-  const [formTemperature, setFormTemperature] = useState(0.7);
-  const [formIsDefault, setFormIsDefault] = useState(false);
-  const [formDisableTools, setFormDisableTools] = useState(false);
-
+  const [form, setForm] = useState<FormState>(blankForm);
   const [errors, setErrors] = useState<string[]>([]);
-
-  // Auto-detect state
   const [detectingModels, setDetectingModels] = useState(false);
   const [detectedModels, setDetectedModels] = useState<string[]>([]);
   const [detectError, setDetectError] = useState('');
 
-  // Apply a preset to the form
-  const applyPreset = useCallback((preset: ProviderPreset) => {
-    setFormId(`model_${preset.id}_${Date.now()}`);
-    setFormName(preset.name);
-    setFormProvider(preset.provider);
-    setFormEndpoint(preset.endpoint);
-    setFormApiKey('');
-    setFormModel(preset.model);
-    setFormMaxTokens(131072);
-    setFormTemperature(0.7);
-    setFormIsDefault(false);
-    setFormDisableTools(false);
+  const setFormField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const resetForm = useCallback(() => {
     setDetectedModels([]);
     setDetectError('');
     setErrors([]);
+  }, []);
+
+  const applyPreset = useCallback((preset: ProviderPreset) => {
+    setFormField('formId', `model_${preset.id}_${Date.now()}`);
+    setFormField('formName', preset.name);
+    setFormField('formProvider', preset.provider);
+    setFormField('formEndpoint', preset.endpoint);
+    setFormField('formApiKey', '');
+    setFormField('formModel', preset.model);
+    setFormField('formMaxTokens', 131072);
+    setFormField('formTemperature', 0.7);
+    setFormField('formIsDefault', false);
+    setFormField('formDisableTools', false);
+    resetForm();
     setIsEditing(true);
     setEditingId(null);
     setShowPresets(false);
-  }, []);
+  }, [setFormField, resetForm]);
 
   // Auto-detect models from endpoint
   const handleDetectModels = useCallback(async () => {
-    if (!formEndpoint.trim()) return;
+    if (!form.formEndpoint.trim()) return;
     setDetectingModels(true);
     setDetectError('');
     setDetectedModels([]);
 
     // Build the models URL
-    let modelsUrl = formEndpoint.trim().replace(/\/+$/, '');
+    let modelsUrl = form.formEndpoint.trim().replace(/\/+$/, '');
     // Strip /chat/completions if present
     if (modelsUrl.endsWith('/chat/completions')) {
       modelsUrl = modelsUrl.replace('/chat/completions', '/models');
@@ -101,24 +113,22 @@ export function ModelConfigPanel({
     } finally {
       setDetectingModels(false);
     }
-  }, [formEndpoint]);
+  }, [form.formEndpoint]);
 
   const handleEdit = (model: ModelConfig) => {
     setIsEditing(true);
     setEditingId(model.id);
-    setFormId(model.id);
-    setFormName(model.name);
-    setFormProvider(model.provider);
-    setFormEndpoint(model.endpoint);
-    setFormApiKey(model.apiKey || '');
-    setFormModel(model.model);
-    setFormMaxTokens(model.maxTokens);
-    setFormTemperature(model.temperature);
-    setFormIsDefault(model.isDefault);
-    setFormDisableTools(model.disableTools ?? false);
-    setDetectedModels([]);
-    setDetectError('');
-    setErrors([]);
+    setFormField('formId', model.id);
+    setFormField('formName', model.name);
+    setFormField('formProvider', model.provider);
+    setFormField('formEndpoint', model.endpoint);
+    setFormField('formApiKey', model.apiKey || '');
+    setFormField('formModel', model.model);
+    setFormField('formMaxTokens', model.maxTokens);
+    setFormField('formTemperature', model.temperature);
+    setFormField('formIsDefault', model.isDefault);
+    setFormField('formDisableTools', model.disableTools ?? false);
+    resetForm();
   };
 
   const handleAddNew = () => {
@@ -128,19 +138,17 @@ export function ModelConfigPanel({
   const handleManualAdd = () => {
     setIsEditing(true);
     setEditingId(null);
-    setFormId(`model_${Date.now()}`);
-    setFormName('');
-    setFormProvider('openai');
-    setFormEndpoint('https://api.openai.com/v1');
-    setFormApiKey('');
-    setFormModel('');
-    setFormMaxTokens(131072);
-    setFormTemperature(0.7);
-    setFormIsDefault(false);
-    setFormDisableTools(false);
-    setDetectedModels([]);
-    setDetectError('');
-    setErrors([]);
+    setFormField('formId', `model_${Date.now()}`);
+    setFormField('formName', '');
+    setFormField('formProvider', 'openai');
+    setFormField('formEndpoint', 'https://api.openai.com/v1');
+    setFormField('formApiKey', '');
+    setFormField('formModel', '');
+    setFormField('formMaxTokens', 131072);
+    setFormField('formTemperature', 0.7);
+    setFormField('formIsDefault', false);
+    setFormField('formDisableTools', false);
+    resetForm();
     setShowPresets(false);
   };
 
@@ -148,16 +156,16 @@ export function ModelConfigPanel({
     e.preventDefault();
 
     const config: ModelConfig = {
-      id: formId,
-      name: formName,
-      provider: formProvider,
-      endpoint: formEndpoint,
-      apiKey: formApiKey || undefined,
-      model: formModel,
-      maxTokens: formMaxTokens,
-      temperature: formTemperature,
-      isDefault: formIsDefault,
-      disableTools: formDisableTools,
+      id: form.formId,
+      name: form.formName,
+      provider: form.formProvider,
+      endpoint: form.formEndpoint,
+      apiKey: form.formApiKey || undefined,
+      model: form.formModel,
+      maxTokens: form.formMaxTokens,
+      temperature: form.formTemperature,
+      isDefault: form.formIsDefault,
+      disableTools: form.formDisableTools,
     };
 
     const validationErrors = ModelRouter.validateConfig(config);
@@ -175,6 +183,7 @@ export function ModelConfigPanel({
     setIsEditing(false);
     setEditingId(null);
     setErrors([]);
+    setForm(blankForm);
   };
 
   return (
@@ -302,8 +311,8 @@ export function ModelConfigPanel({
             <input
               type="text"
               className="form-input"
-              value={formName}
-              onChange={e => setFormName(e.target.value)}
+              value={form.formName}
+              onChange={e => setFormField('formName', e.target.value)}
               placeholder="e.g. GPT-4o, MiMo Pro"
               required
               id="model-name-input"
@@ -315,20 +324,20 @@ export function ModelConfigPanel({
             <input
               type="text"
               className="form-input"
-              value={formEndpoint}
-              onChange={e => { setFormEndpoint(e.target.value); setDetectedModels([]); }}
+              value={form.formEndpoint}
+              onChange={e => { setFormField('formEndpoint', e.target.value); setDetectedModels([]); }}
               onBlur={e => {
-                if (formProvider !== 'ollama' && e.target.value.trim()) {
-                  setFormEndpoint(normalizeEndpoint(e.target.value.trim()));
+                if (form.formProvider !== 'ollama' && e.target.value.trim()) {
+                  setFormField('formEndpoint', normalizeEndpoint(e.target.value.trim()));
                 }
               }}
               placeholder="https://api.example.com/v1"
               required
               id="model-endpoint-input"
             />
-            {formProvider !== 'ollama' && formEndpoint.trim() && !formEndpoint.includes('/chat/completions') && (
+            {form.formProvider !== 'ollama' && form.formEndpoint.trim() && !form.formEndpoint.includes('/chat/completions') && (
               <span style={{ fontSize: '11px', color: 'var(--color-info)', marginTop: '4px', display: 'block' }}>
-                💡 Will auto-complete to: {normalizeEndpoint(formEndpoint)}
+                💡 Will auto-complete to: {normalizeEndpoint(form.formEndpoint)}
               </span>
             )}
           </div>
@@ -339,8 +348,8 @@ export function ModelConfigPanel({
               <input
                 type="text"
                 className="form-input"
-                value={formModel}
-                onChange={e => setFormModel(e.target.value)}
+                value={form.formModel}
+                onChange={e => setFormField('formModel', e.target.value)}
                 placeholder="e.g. gpt-4o, gemini-2.5-flash"
                 required
                 id="model-identifier-input"
@@ -350,7 +359,7 @@ export function ModelConfigPanel({
                 type="button"
                 className="btn-ghost"
                 onClick={handleDetectModels}
-                disabled={detectingModels || !formEndpoint.trim()}
+                disabled={detectingModels || !form.formEndpoint.trim()}
                 style={{ whiteSpace: 'nowrap', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                 title="Auto-detect available models from endpoint"
               >
@@ -368,10 +377,10 @@ export function ModelConfigPanel({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => { setFormModel(m); setDetectedModels([]); }}
+                    onClick={() => { setFormField('formModel', m); setDetectedModels([]); }}
                     style={{
                       display: 'block', width: '100%', padding: '4px 8px',
-                      background: formModel === m ? 'var(--bg-surface-elevated)' : 'transparent',
+                      background: form.formModel === m ? 'var(--bg-surface-elevated)' : 'transparent',
                       border: 'none', borderRadius: '4px',
                       color: 'var(--text-primary)', fontSize: '12px',
                       fontFamily: 'var(--font-mono)', textAlign: 'left',
@@ -395,8 +404,8 @@ export function ModelConfigPanel({
             <label>Provider Type</label>
             <select
               className="form-select"
-              value={formProvider}
-              onChange={e => setFormProvider(e.target.value as ModelProvider)}
+              value={form.formProvider}
+              onChange={e => setFormField('formProvider', e.target.value as ModelProvider)}
               id="model-provider-select"
             >
               <option value="openai">OpenAI</option>
@@ -410,8 +419,8 @@ export function ModelConfigPanel({
             <input
               type="password"
               className="form-input"
-              value={formApiKey}
-              onChange={e => setFormApiKey(e.target.value)}
+              value={form.formApiKey}
+              onChange={e => setFormField('formApiKey', e.target.value)}
               placeholder="Leave empty for local models (LM Studio, Ollama)"
               id="model-apikey-input"
             />
@@ -419,22 +428,22 @@ export function ModelConfigPanel({
 
           <div className="form-row">
             <div className="form-group" style={{ minWidth: 0 }}>
-              <label>Max Tokens ({formMaxTokens.toLocaleString()})</label>
+              <label>Max Tokens ({form.formMaxTokens.toLocaleString()})</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="range"
                   min="4096"
                   max="1048576"
                   step="4096"
-                  value={formMaxTokens}
-                  onChange={e => setFormMaxTokens(parseInt(e.target.value))}
+                  value={form.formMaxTokens}
+                  onChange={e => setFormField('formMaxTokens', parseInt(e.target.value))}
                   style={{ accentColor: 'var(--accent-color)', flex: 1 }}
                   id="model-maxtokens-input"
                 />
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setFormMaxTokens(Math.max(4096, formMaxTokens - 4096))}
+                  onClick={() => setFormField('formMaxTokens', Math.max(4096, form.formMaxTokens - 4096))}
                   style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
                   title="Decrease by 4096"
                 >
@@ -443,7 +452,7 @@ export function ModelConfigPanel({
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setFormMaxTokens(Math.min(1048576, formMaxTokens + 4096))}
+                  onClick={() => setFormField('formMaxTokens', Math.min(1048576, form.formMaxTokens + 4096))}
                   style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
                   title="Increase by 4096"
                 >
@@ -452,14 +461,14 @@ export function ModelConfigPanel({
               </div>
             </div>
             <div className="form-group">
-              <label>Temperature ({formTemperature.toFixed(2)})</label>
+              <label>Temperature ({form.formTemperature.toFixed(2)})</label>
               <input
                 type="range"
                 min="0.0"
                 max="2.0"
                 step="0.05"
-                value={formTemperature}
-                onChange={e => setFormTemperature(parseFloat(e.target.value))}
+                value={form.formTemperature}
+                onChange={e => setFormField('formTemperature', parseFloat(e.target.value))}
                 style={{ accentColor: 'var(--accent-color)' }}
                 id="model-temp-input"
               />
@@ -470,16 +479,16 @@ export function ModelConfigPanel({
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
               <input
                 type="checkbox"
-                checked={formIsDefault}
-                onChange={e => setFormIsDefault(e.target.checked)}
+                checked={form.formIsDefault}
+                onChange={e => setFormField('formIsDefault', e.target.checked)}
               />
               Set as default
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
               <input
                 type="checkbox"
-                checked={formDisableTools}
-                onChange={e => setFormDisableTools(e.target.checked)}
+                checked={form.formDisableTools}
+                onChange={e => setFormField('formDisableTools', e.target.checked)}
               />
               Disable tools
             </label>

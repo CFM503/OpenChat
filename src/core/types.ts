@@ -19,19 +19,6 @@ export interface ModelConfig {
   disableTools?: boolean;
 }
 
-export interface ModelRouteRequest {
-  modelId: string;
-  messages: ChatMessage[];
-  stream: boolean;
-}
-
-export interface ModelRouteResponse {
-  content: string;
-  thinking?: string;
-  model: string;
-  tokensUsed: number;
-}
-
 // --- Chat Types ---
 
 export interface ChatAttachment {
@@ -75,7 +62,6 @@ export interface StreamParserState {
   buffer: string;
   insideThinking: boolean;
   thinkingBuffer: string;
-  contentBuffer: string;
 }
 
 // --- Agent Task State Machine Types ---
@@ -108,8 +94,11 @@ export interface TaskTransition {
   from: TaskStatus;
   action: TaskAction;
   to: TaskStatus;
-  guard?: (task: AgentTask) => boolean;
 }
+
+// --- Application State ---
+
+export type SearchProvider = 'tavily' | 'serpapi' | 'bing' | 'searxng';
 
 // --- Workspace Types ---
 
@@ -121,29 +110,7 @@ export interface WorkspaceFile {
   lastModified: number;
 }
 
-// --- Application State ---
-
-export type SearchProvider = 'tavily' | 'serpapi' | 'bing' | 'searxng';
-
-export interface AppState {
-  models: ModelConfig[];
-  activeModelId: string | null;
-  messages: ChatMessage[];
-  tasks: AgentTask[];
-  workspaceFiles: WorkspaceFile[];
-  sidebarCollapsed: boolean;
-  activeTab: 'chat' | 'tasks' | 'models' | 'files';
-  rightPanelTab: 'code' | 'tasks';
-  webSearchEnabled: boolean;
-  searchProvider?: SearchProvider;
-  searchApiKey?: string;
-  searchBaseUrl?: string;
-  proxyUrl?: string;
-  /** @deprecated Use searchApiKey */
-  tavilyApiKey?: string;
-}
-
-// ── Skill Types ──────────────────────────────────────────────────────────────
+// --- Workspace Types ---
 
 export interface SkillInfo {
   name: string;

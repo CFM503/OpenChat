@@ -4,7 +4,7 @@
 
 import React, { useState } from 'react';
 
-export interface ToolOutputProps {
+interface ToolOutputProps {
   toolName: string;
   status: 'running' | 'success' | 'error';
   input?: string;

@@ -14,8 +14,6 @@ import type { ModelConfig, ModelProvider, ChatMessage } from './types';
  *  - If URL ends with /v1 or /v1/ → append /chat/completions
  *  - Otherwise → append /v1/chat/completions
  *
- * Only applies to 'openai' and 'custom' providers. Ollama has its own path.
- *
  * Examples:
  *   https://api.example.com/v1           → https://api.example.com/v1/chat/completions
  *   https://api.example.com/v1/          → https://api.example.com/v1/chat/completions
@@ -26,21 +24,8 @@ import type { ModelConfig, ModelProvider, ChatMessage } from './types';
  */
 export function normalizeEndpoint(url: string): string {
   let normalized = url.trim().replace(/\/+$/, '');
-
   if (normalized.endsWith('/chat/completions')) return normalized;
   if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
-
-  try {
-    const parsed = new URL(normalized);
-    const p = parsed.pathname.replace(/\/+$/, '');
-    if (/\/openai$/i.test(p)) return normalized + '/chat/completions';
-    if (/^\/v\d+\w*$/.test(p)) return normalized + '/openai/chat/completions';
-    if (/^\/v\d+\w*\/openai/.test(p)) return normalized + '/chat/completions';
-    if (p !== '' && p !== '/') return normalized;
-  } catch {
-    // Not a valid URL, proceed with normalization
-  }
-
   return normalized + '/v1/chat/completions';
 }
 
@@ -278,75 +263,48 @@ export class ModelRouter {
     }
   }
 
+  private mapAttachments(m: ChatMessage) {
+    const images = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
+    const texts = m.attachments?.filter(a => !a.type.startsWith('image/')) || [];
+    let textContent = m.content;
+    if (texts.length > 0) {
+      textContent += texts
+        .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
+        .join('');
+    }
+    return { textContent, images };
+  }
+
   private mapMessagesForOpenAI(messages: ChatMessage[]) {
     return messages.map(m => {
-      const images = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
-      const texts = m.attachments?.filter(a => !a.type.startsWith('image/')) || [];
-
-      let textContent = m.content;
-      if (texts.length > 0) {
-        textContent += texts
-          .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
-          .join('');
-      }
-
-      // Use multimodal content blocks for images (OpenAI vision format)
+      const { textContent, images } = this.mapAttachments(m);
       if (images.length > 0) {
         const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
           { type: 'text', text: textContent },
         ];
         for (const img of images) {
-          parts.push({
-            type: 'image_url',
-            image_url: { url: img.content },
-          });
+          parts.push({ type: 'image_url', image_url: { url: img.content } });
         }
         return { role: m.role, content: parts };
       }
-
-      return {
-        role: m.role,
-        content: textContent,
-      };
+      return { role: m.role, content: textContent };
     });
   }
 
   private mapMessagesForOllama(messages: ChatMessage[]) {
     return messages.map(m => {
-      const images = m.attachments?.filter(a => a.type.startsWith('image/')) || [];
-      const texts = m.attachments?.filter(a => !a.type.startsWith('image/')) || [];
-
-      let textContent = m.content;
-      if (texts.length > 0) {
-        textContent += texts
-          .map(a => `\n\n---\nAttachment: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``)
-          .join('');
-      }
-
-      // Ollama uses top-level "images" array with raw base64
+      const { textContent, images } = this.mapAttachments(m);
       if (images.length > 0) {
         const base64Images = images
-          .map(a => {
-            const dataUrl = a.content;
-            // Strip data:image/xxx;base64, prefix
-            if (dataUrl.startsWith('data:')) {
-              return dataUrl.split(',')[1];
-            }
-            return dataUrl;
-          })
+          .map(a => a.content.startsWith('data:') ? a.content.split(',')[1] : a.content)
           .filter(Boolean);
-
         return {
           role: m.role,
           content: textContent,
           ...(base64Images.length > 0 && { images: base64Images }),
         };
       }
-
-      return {
-        role: m.role,
-        content: textContent,
-      };
+      return { role: m.role, content: textContent };
     });
   }
 

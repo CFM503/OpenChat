@@ -12,7 +12,6 @@ export function createParserState(): StreamParserState {
     buffer: '',
     insideThinking: false,
     thinkingBuffer: '',
-    contentBuffer: '',
   };
 }
 
@@ -142,14 +141,9 @@ export function parseComplete(text: string): ParsedStreamChunk[] {
  * Returns the length of the matching suffix, or 0 if no partial match.
  */
 function findPartialTag(buffer: string, tag: string): number {
-  // Check if the tail of the buffer matches a prefix of the tag
   const maxCheck = Math.min(buffer.length, tag.length - 1);
   for (let len = maxCheck; len >= 1; len--) {
-    const bufferTail = buffer.slice(buffer.length - len);
-    const tagPrefix = tag.slice(0, len);
-    if (bufferTail === tagPrefix) {
-      return len;
-    }
+    if (buffer.endsWith(tag.slice(0, len))) return len;
   }
   return 0;
 }

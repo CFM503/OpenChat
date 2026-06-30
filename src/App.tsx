@@ -4,13 +4,12 @@
 // ============================================================================
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, AgentTask, ModelConfig, WorkspaceFile, TaskAction, ChatAttachment } from './core/types';
-import type { ToolEvent } from './services/api';
+import type { ChatMessage, AgentTask, ModelConfig, WorkspaceFile, TaskAction, ChatAttachment, ToolEvent } from './core/types';
 import { createParserState, feedChunk, finalize } from './core/streamParser';
 import { ModelRouter, DEFAULT_MODELS } from './core/modelRouter';
 import { TaskManager } from './core/taskStateMachine';
 import { simulateStream } from './core/simulatedApi';
-import { canMakeRealRequest, streamRealResponse } from './core/apiClient';
+import { canMakeRealRequest } from './core/apiClient';
 import { ChatPanel } from './components/ChatPanel';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { ModelConfigPanel } from './components/ModelConfigPanel';

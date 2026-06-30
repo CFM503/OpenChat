@@ -3,24 +3,10 @@
 // Falls back gracefully when backend is unavailable
 // ============================================================================
 
-import type { ChatMessage, ServerMessage, ClientMessage } from '../../server/src/types.js';
-import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo } from '../core/types.js';
-import type { ChatMessage as ServerChatMessage } from '../../server/src/types.js';
+import type { ChatMessage, ServerMessage, ClientMessage, ChatMessage as ServerChatMessage } from '../../server/src/types.js';
+import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo, ToolEvent } from '../core/types.js';
 
 export type { ChatMessage, ServerMessage, ClientMessage };
-
-export interface ToolEvent {
-  type: 'start' | 'result';
-  toolCallId: string;
-  name: string;
-  input?: string;
-  result?: {
-    success: boolean;
-    output: string;
-    error?: string;
-    duration: number;
-  };
-}
 
 export interface StreamCallbacks {
   onContent: (text: string) => void;

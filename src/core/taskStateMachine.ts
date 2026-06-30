@@ -142,7 +142,7 @@ export function applyAction(task: AgentTask, action: TaskAction, payload?: strin
 /**
  * Custom error for invalid state transitions.
  */
-export class TaskTransitionError extends Error {
+class TaskTransitionError extends Error {
   public readonly fromStatus: TaskStatus;
   public readonly action: TaskAction;
 
@@ -188,13 +188,6 @@ export class TaskManager {
   }
 
   /**
-   * Get a task by ID.
-   */
-  getTask(id: string): AgentTask | undefined {
-    return this.tasks.get(id);
-  }
-
-  /**
    * Get all tasks, optionally filtered by status.
    */
   getTasks(status?: TaskStatus): AgentTask[] {
@@ -203,54 +196,6 @@ export class TaskManager {
       return all.filter(t => t.status === status);
     }
     return all;
-  }
-
-  /**
-   * Get tasks grouped by status.
-   */
-  getTasksByStatus(): Record<TaskStatus, AgentTask[]> {
-    return {
-      pending: this.getTasks('pending'),
-      running: this.getTasks('running'),
-      success: this.getTasks('success'),
-      failed: this.getTasks('failed'),
-    };
-  }
-
-  /**
-   * Remove a task by ID.
-   */
-  removeTask(id: string): boolean {
-    return this.tasks.delete(id);
-  }
-
-  /**
-   * Simulate the full lifecycle of a task (for demo purposes).
-   * Returns the task at each stage.
-   */
-  async simulateTaskLifecycle(
-    title: string,
-    description: string,
-    assignee: string,
-    delayMs: number = 1000
-  ): Promise<AgentTask[]> {
-    const stages: AgentTask[] = [];
-
-    // Create
-    const task = this.create(title, description, assignee, 'medium');
-    stages.push({ ...task });
-
-    // Start
-    await delay(delayMs);
-    const running = this.dispatch(task.id, 'START');
-    stages.push({ ...running });
-
-    // Complete
-    await delay(delayMs);
-    const completed = this.dispatch(task.id, 'COMPLETE', `${title} finished with output`);
-    stages.push({ ...completed });
-
-    return stages;
   }
 }
 
@@ -288,8 +233,4 @@ function getLogLevel(action: TaskAction): TaskLog['level'] {
     default:
       return 'info';
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
