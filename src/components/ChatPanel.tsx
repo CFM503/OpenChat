@@ -56,6 +56,7 @@ interface ChatPanelProps {
   webSearchEnabled?: boolean;
   onToggleWebSearch?: (enabled: boolean) => void;
   hasSearchKey?: boolean;
+  onViewContext?: () => void;
 }
 
 // ── Markdown Renderer ─────────────────────────────────────────────────────
@@ -63,7 +64,10 @@ interface ChatPanelProps {
 const marked = new Marked({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
-      const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+      let language = lang || 'text';
+      if (!hljs.getLanguage(language)) {
+        language = 'text';
+      }
       const highlighted = lang
         ? hljs.highlight(text, { language }).value
         : hljs.highlightAuto(text).value;
@@ -204,9 +208,11 @@ export function ChatPanel({
   webSearchEnabled = false,
   onToggleWebSearch = () => {},
   hasSearchKey = false,
+  onViewContext = () => {},
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState('');
   const [stagedAttachments, setStagedAttachments] = useState<ChatAttachment[]>([]);
+  const [showContext, setShowContext] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -441,6 +447,20 @@ export function ChatPanel({
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
               </button>
+              <button
+                className="btn-ghost"
+                onClick={() => setShowContext(true)}
+                disabled={isStreaming}
+                title="View context sent to server"
+                type="button"
+                id="btn-view-context"
+                style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
             </div>
             {isStreaming ? (
               <button className="btn-primary" onClick={onStopStreaming} style={{ background: 'var(--color-error)' }}>
@@ -461,6 +481,35 @@ export function ChatPanel({
           </div>
         </div>
       </div>
+
+      {/* Context Viewer Modal */}
+      {showContext && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowContext(false)}>
+          <div style={{
+            background: 'var(--bg-surface)', borderRadius: '12px', padding: '20px',
+            maxWidth: '800px', width: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Context Sent to Server</h3>
+              <button className="btn-ghost" onClick={() => setShowContext(false)} style={{ fontSize: '1.2rem', padding: '4px 8px' }}>✕</button>
+            </div>
+            <pre style={{
+              flex: 1, overflow: 'auto', fontSize: '12px', fontFamily: 'var(--font-mono)',
+              background: 'var(--bg-surface-elevated)', padding: '12px', borderRadius: '8px',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5,
+            }}>
+              {JSON.stringify(messages.map(m => ({
+                role: m.role,
+                content: m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content,
+              })), null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

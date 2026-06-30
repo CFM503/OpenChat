@@ -328,7 +328,7 @@ export class ModelRouter {
         body: JSON.stringify({
           model: config.model,
           messages: this.mapMessagesForOpenAI(messages),
-          max_tokens: config.maxTokens,
+          ...(config.useMaxTokens !== false && { max_tokens: config.maxTokens }),
           temperature: config.temperature,
           stream,
         }),

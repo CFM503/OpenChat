@@ -115,10 +115,12 @@ export class ProviderGateway {
     const body: Record<string, any> = {
       model: model.model,
       messages: params.messages,
-      max_tokens: model.maxTokens,
       temperature: model.temperature,
       stream: true,
     };
+    if (model.useMaxTokens !== false) {
+      body.max_tokens = model.maxTokens;
+    }
 
     if (params.tools?.length) {
       body.tools = params.tools;

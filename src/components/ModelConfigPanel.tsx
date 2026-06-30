@@ -35,12 +35,13 @@ export function ModelConfigPanel({
     formTemperature: number;
     formIsDefault: boolean;
     formDisableTools: boolean;
+    formUseMaxTokens: boolean;
   }
 
   const blankForm: FormState = {
     formId: '', formName: '', formProvider: 'openai', formEndpoint: '',
     formApiKey: '', formModel: '', formMaxTokens: 4096, formTemperature: 0.7,
-    formIsDefault: false, formDisableTools: false,
+    formIsDefault: false, formDisableTools: false, formUseMaxTokens: true,
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -128,6 +129,7 @@ export function ModelConfigPanel({
     setFormField('formTemperature', model.temperature);
     setFormField('formIsDefault', model.isDefault);
     setFormField('formDisableTools', model.disableTools ?? false);
+    setFormField('formUseMaxTokens', model.useMaxTokens ?? true);
     resetForm();
   };
 
@@ -148,6 +150,7 @@ export function ModelConfigPanel({
     setFormField('formTemperature', 0.7);
     setFormField('formIsDefault', false);
     setFormField('formDisableTools', false);
+    setFormField('formUseMaxTokens', true);
     resetForm();
     setShowPresets(false);
   };
@@ -166,6 +169,7 @@ export function ModelConfigPanel({
       temperature: form.formTemperature,
       isDefault: form.formIsDefault,
       disableTools: form.formDisableTools,
+      useMaxTokens: form.formUseMaxTokens,
     };
 
     const validationErrors = ModelRouter.validateConfig(config);
@@ -437,6 +441,7 @@ export function ModelConfigPanel({
                   step="4096"
                   value={form.formMaxTokens}
                   onChange={e => setFormField('formMaxTokens', parseInt(e.target.value))}
+                  disabled={!form.formUseMaxTokens}
                   style={{ accentColor: 'var(--accent-color)', flex: 1 }}
                   id="model-maxtokens-input"
                 />
@@ -444,7 +449,8 @@ export function ModelConfigPanel({
                   type="button"
                   className="btn-ghost"
                   onClick={() => setFormField('formMaxTokens', Math.max(4096, form.formMaxTokens - 4096))}
-                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
+                  disabled={!form.formUseMaxTokens}
+                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: form.formUseMaxTokens ? 'pointer' : 'not-allowed', opacity: form.formUseMaxTokens ? 1 : 0.4 }}
                   title="Decrease by 4096"
                 >
                   −
@@ -453,7 +459,8 @@ export function ModelConfigPanel({
                   type="button"
                   className="btn-ghost"
                   onClick={() => setFormField('formMaxTokens', Math.min(1048576, form.formMaxTokens + 4096))}
-                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer' }}
+                  disabled={!form.formUseMaxTokens}
+                  style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: form.formUseMaxTokens ? 'pointer' : 'not-allowed', opacity: form.formUseMaxTokens ? 1 : 0.4 }}
                   title="Increase by 4096"
                 >
                   +
@@ -491,6 +498,14 @@ export function ModelConfigPanel({
                 onChange={e => setFormField('formDisableTools', e.target.checked)}
               />
               Disable tools
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+              <input
+                type="checkbox"
+                checked={form.formUseMaxTokens}
+                onChange={e => setFormField('formUseMaxTokens', e.target.checked)}
+              />
+              Fixed max tokens
             </label>
           </div>
 

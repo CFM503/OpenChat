@@ -17,6 +17,7 @@ export interface ModelConfig {
   temperature: number;
   isDefault: boolean;
   disableTools?: boolean;
+  useMaxTokens?: boolean;  // true = send max_tokens to API, false = let provider decide
 }
 
 // --- Chat Types ---

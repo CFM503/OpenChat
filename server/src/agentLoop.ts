@@ -8,6 +8,7 @@ import { ProviderGateway } from './providerGateway.js';
 import * as registry from './tools/registry.js';
 import type { ToolContext } from './tools/types.js';
 import type { ServerMessage, ChatMessage, ToolCallResult } from './types.js';
+import { compressConversation } from './summarizer.js';
 
 export interface AgentLoopParams {
   messages: ChatMessage[];
@@ -16,7 +17,12 @@ export interface AgentLoopParams {
   onEvent: (event: ServerMessage) => void;
 }
 
+/** Token limit threshold — compress when usage exceeds this percentage */
+const CONTEXT_COMPRESSION_THRESHOLD = 0.85;
+
 export class AgentLoop {
+  private compressedSummary: string | null = null;
+
   constructor(
     private providers: ProviderGateway,
     private tools: typeof registry,
@@ -41,31 +47,19 @@ export class AgentLoop {
     const toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
-    // Always convert images to text descriptions — the LLM provider may not support
-    // multimodal image_url blocks. If the model supports vision, the text description
-    // serves as metadata; if not, it's the only representation.
     let llmMessages: Record<string, any>[] = messages
       .filter(m => m.role !== 'tool')
       .map(m => {
         const images = m.attachments?.filter(a => a.type.startsWith('image/')) ?? [];
         const textAttachments = m.attachments?.filter(a => !a.type.startsWith('image/')) ?? [];
 
-        if (m.attachments?.length) {
-          console.log(`[agentLoop] Message ${m.id} has ${m.attachments.length} attachment(s): ${m.attachments.map(a => `${a.name} (${a.type}, ${a.size}B)`).join(', ')}`);
-        }
-
-        // Always use plain text format — safe for all providers
         let content: string = m.content;
 
-        // Build content array for multimodal support
         const textParts: string[] = [content];
-
-        // Append text file contents
         for (const ta of textAttachments) {
           textParts.push(`\n\n[Attached file: ${ta.name}]\n${ta.content}`);
         }
 
-        // If images exist, use multimodal content array (OpenAI vision format)
         if (images.length > 0) {
           const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
             { type: 'text', text: textParts.join('') },
@@ -96,15 +90,17 @@ export class AgentLoop {
             function: { name: tc.name, arguments: tc.arguments },
           }))}),
         };
+      })
+      // Skip the welcome message — it's only for UI display, not part of the conversation
+      .filter((m, i, arr) => {
+        if (i === 0 && m.role === 'assistant' && m.content.includes('Welcome to')) return false;
+        return true;
       });
 
     // Sanitize messages: remove empty messages, ensure role alternation
     llmMessages = llmMessages.filter(m => {
-      // Keep tool messages
       if (m.role === 'tool') return true;
-      // Keep assistant messages with tool_calls
       if (m.role === 'assistant' && m.tool_calls?.length > 0) return true;
-      // Remove empty content messages
       if (!m.content || (typeof m.content === 'string' && m.content.trim() === '')) return false;
       return true;
     });
@@ -118,7 +114,6 @@ export class AgentLoop {
       }
       const last = sanitized[sanitized.length - 1];
       if (last && last.role === msg.role && last.role !== 'tool') {
-        // Merge consecutive same-role messages
         if (typeof last.content === 'string' && typeof msg.content === 'string') {
           last.content += '\n\n' + msg.content;
         }
@@ -133,22 +128,30 @@ export class AgentLoop {
       llmMessages.unshift({ role: 'user', content: 'Continue.' });
     }
 
-    // Limit history to prevent context overflow on small models
-    const MAX_HISTORY_MESSAGES = 20;
-    if (llmMessages.length > MAX_HISTORY_MESSAGES) {
-      llmMessages = llmMessages.slice(-MAX_HISTORY_MESSAGES);
-      // Ensure first message is still from user after truncation
-      if (llmMessages[0].role === 'assistant') {
-        llmMessages[0] = { role: 'user', content: '[Previous messages truncated]' };
-      }
-    }
-
     const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,
       sessionId,
       abortSignal: signal ?? new AbortController().signal,
     };
+
+    // ── Compress context if it exceeds the threshold ─────────────────
+    if (model && llmMessages.length > 10) {
+      try {
+        const result = await compressConversation(this.providers, model, llmMessages);
+        if (result.summary) {
+          this.compressedSummary = result.summary;
+          llmMessages = [
+            { role: 'system', content: `Conversation summary:\n${result.summary}` },
+            ...result.recentMessages.map(m => ({ role: m.role, content: m.content })),
+          ];
+        }
+      } catch (err: any) {
+        console.warn('[agentLoop] Compression failed:', err.message);
+        // Fallback: hard truncate to last 40 messages
+        llmMessages = llmMessages.slice(-40);
+      }
+    }
 
     const MAX_ROUNDS = 10;
 
@@ -207,9 +210,8 @@ export class AgentLoop {
 
       // Build the assistant message with tool_calls
       const toolCalls = Array.from(toolCallsAccumulator.values())
-        .filter(tc => tc.name && tc.name.trim().length > 0);  // Filter out invalid tool calls with empty names
+        .filter(tc => tc.name && tc.name.trim().length > 0);
 
-      // If no valid tool calls remain, treat as done
       if (toolCalls.length === 0) {
         onEvent({ type: 'done' });
         return;
@@ -247,7 +249,6 @@ export class AgentLoop {
           continue;
         }
 
-        // Notify tool start
         onEvent({
           type: 'tool_start',
           toolCallId: tc.id,
@@ -255,7 +256,6 @@ export class AgentLoop {
           input: tc.arguments,
         });
 
-        // Execute — H-7: wrap in try/catch to prevent unhandled crashes
         let input: unknown;
         try {
           input = JSON.parse(tc.arguments);
@@ -287,7 +287,6 @@ export class AgentLoop {
           result: toolResult,
         });
 
-        // Append tool result to messages for next round
         llmMessages.push({
           role: 'tool',
           tool_call_id: tc.id,
@@ -300,7 +299,6 @@ export class AgentLoop {
       }
     }
 
-    // Safety: if we hit max rounds
     onEvent({ type: 'done' });
   }
 }

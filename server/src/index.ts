@@ -11,7 +11,7 @@ import { ConfigManager, sanitizeError } from './configManager.js';
 import { ProviderGateway } from './providerGateway.js';
 import { AgentLoop } from './agentLoop.js';
 import { SessionManager } from './sessionManager.js';
-import { register, getAll } from './tools/registry.js';
+import * as registry from './tools/registry.js';
 import { BashTool } from './tools/BashTool.js';
 import { FileReadTool, FileWriteTool, FileEditTool } from './tools/FileTool.js';
 import { GrepTool, GlobTool, setGrepGlobToolConfig } from './tools/GrepGlobTool.js';
@@ -41,13 +41,13 @@ setBashToolConfig(config);
 setGrepGlobToolConfig(config);
 
 // Register all tools
-register(BashTool);
-register(FileReadTool);
-register(FileWriteTool);
-register(FileEditTool);
-register(GrepTool);
-register(GlobTool);
-register(GitTool);
+registry.register(BashTool);
+registry.register(FileReadTool);
+registry.register(FileWriteTool);
+registry.register(FileEditTool);
+registry.register(GrepTool);
+registry.register(GlobTool);
+registry.register(GitTool);
 
 // Skill and MCP managers
 const userHome = process.env.HOME ?? process.env.USERPROFILE ?? WORKING_DIRECTORY;
@@ -125,7 +125,7 @@ app.delete('/api/sessions/:id', (c) => {
 app.get('/api/health', (c) => {
   return c.json({
     status: 'ok',
-    tools: getAll().map(t => t.name),
+    tools: registry.getAll().map(t => t.name),
     workingDirectory: WORKING_DIRECTORY,
     canMakeRequest: providers.canMakeRequest(),
   });
@@ -156,7 +156,7 @@ app.get('/api/discover-models', async (c) => {
 // Tools listing
 app.get('/api/tools', (c) => {
   return c.json(
-    getAll().map(t => ({
+    registry.getAll().map(t => ({
       name: t.name,
       description: t.description,
       isReadOnly: t.isReadOnly,
@@ -279,7 +279,7 @@ app.route('/api/registry', registryApp);
 const httpServer = serve({ fetch: app.fetch, port: PORT }, async (info) => {
   console.log(`\n  ✨ OpenChat Backend running at http://localhost:${info.port}`);
   console.log(`  📂 Working directory: ${WORKING_DIRECTORY}`);
-  console.log(`  🔧 Tools: ${getAll().map(t => t.name).join(', ')}`);
+  console.log(`  🔧 Tools: ${registry.getAll().map(t => t.name).join(', ')}`);
 
   // Load skills
   await skills.load();

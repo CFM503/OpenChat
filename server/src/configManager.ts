@@ -31,10 +31,11 @@ export interface ModelConfig {
   temperature: number;
   isDefault: boolean;
   disableTools?: boolean;
+  useMaxTokens?: boolean;
 }
 
 /** Sanitize error messages to strip API keys and secrets. */
-function sanitizeError(err: unknown): string {
+export function sanitizeError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.replace(/sk-[a-zA-Z0-9_-]{8,}/g, 'sk-***REDACTED***')
     .replace(/sk-ant-[a-zA-Z0-9_-]{8,}/g, 'sk-ant-***')
