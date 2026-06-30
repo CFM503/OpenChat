@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 import { ProviderGateway } from './providerGateway.js';
-import { ToolRegistry } from './tools/registry.js';
+import * as registry from './tools/registry.js';
 import type { ToolContext } from './tools/types.js';
 import type { ServerMessage, ChatMessage, ToolCallResult } from './types.js';
 
@@ -19,7 +19,7 @@ export interface AgentLoopParams {
 export class AgentLoop {
   constructor(
     private providers: ProviderGateway,
-    private tools: ToolRegistry,
+    private tools: typeof registry,
     private workingDirectory: string,
   ) {}
 
@@ -38,7 +38,7 @@ export class AgentLoop {
     // Check if tools are disabled for this model
     const model = this.providers.getActiveModel(modelId);
     const toolsDisabled = model?.disableTools === true;
-    const toolDefs = toolsDisabled ? [] : this.tools.toFunctionDefinitions();
+    const toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
     // Always convert images to text descriptions — the LLM provider may not support
@@ -228,7 +228,7 @@ export class AgentLoop {
       for (const tc of toolCalls) {
         if (signal?.aborted) break;
 
-        const tool = this.tools.get(tc.name);
+        const tool = registry.get(tc.name);
         if (!tool) {
           const errorResult: ToolCallResult = {
             toolCallId: tc.id,

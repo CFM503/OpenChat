@@ -8,17 +8,17 @@ import { pathToFileURL } from 'url';
 import type { PluginManifest, PluginModule, InstalledPlugin } from './types.js';
 import type { ToolDefinition, ToolContext } from '../tools/types.js';
 import type { ToolResult } from '../types.js';
-import type { ToolRegistry } from '../tools/registry.js';
+import * as registry from '../tools/registry.js';
 
 export class PluginManager {
   private plugins: Map<string, InstalledPlugin> = new Map();
   private pluginDir: string;
-  private registry: ToolRegistry;
+  private registry: typeof registry;
   private registeredTools: Map<string, string> = new Map(); // toolName → pluginName
 
-  constructor(pluginDir: string, registry: ToolRegistry) {
+  constructor(pluginDir: string, reg: typeof registry) {
     this.pluginDir = pluginDir;
-    this.registry = registry;
+    this.registry = reg;
   }
 
   /**
@@ -111,7 +111,7 @@ export class PluginManager {
         },
       };
 
-      this.registry.register(toolDef);
+      registry.register(toolDef);
       this.registeredTools.set(prefixedName, manifest.name);
     }
 
@@ -128,7 +128,7 @@ export class PluginManager {
     // Unregister tools
     for (const [toolName, pluginName] of this.registeredTools) {
       if (pluginName === name) {
-        this.registry.unregister(toolName);
+        registry.unregister(toolName);
         this.registeredTools.delete(toolName);
       }
     }

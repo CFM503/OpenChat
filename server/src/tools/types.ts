@@ -28,10 +28,8 @@ export interface ToolContext {
   abortSignal: AbortSignal;
 }
 
-/**
- * OpenAI function-calling format tool definition
- */
-export interface FunctionToolDef {
+/** OpenAI function-calling format tool definition */
+interface FunctionToolDef {
   type: 'function';
   function: {
     name: string;

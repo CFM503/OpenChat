@@ -4,40 +4,36 @@
 
 import type { ToolDefinition, FunctionToolDef } from './types.js';
 
-export class ToolRegistry {
-  private tools = new Map<string, ToolDefinition>();
+const tools = new Map<string, ToolDefinition>();
 
-  register(tool: ToolDefinition): void {
-    this.tools.set(tool.name, tool);
-  }
+export function register(tool: ToolDefinition): void {
+  tools.set(tool.name, tool);
+}
 
-  unregister(name: string): boolean {
-    return this.tools.delete(name);
-  }
+export function unregister(name: string): boolean {
+  return tools.delete(name);
+}
 
-  get(name: string): ToolDefinition | undefined {
-    return this.tools.get(name);
-  }
+export function get(name: string): ToolDefinition | undefined {
+  return tools.get(name);
+}
 
-  has(name: string): boolean {
-    return this.tools.has(name);
-  }
+export function has(name: string): boolean {
+  return tools.has(name);
+}
 
-  getAll(): ToolDefinition[] {
-    return Array.from(this.tools.values());
-  }
+export function getAll(): ToolDefinition[] {
+  return Array.from(tools.values());
+}
 
-  /**
-   * Returns all registered tools in OpenAI function-calling format.
-   */
-  toFunctionDefinitions(): FunctionToolDef[] {
-    return this.getAll().map(tool => ({
-      type: 'function' as const,
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-      },
-    }));
-  }
+/** Returns all registered tools in OpenAI function-calling format. */
+export function toFunctionDefinitions(): FunctionToolDef[] {
+  return getAll().map(tool => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  }));
 }

@@ -5,7 +5,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { BUILTIN_SKILLS } from './builtins.js';
-import type { Skill, SkillMetadata } from './types.js';
+import type { Skill } from './types.js';
 
 /**
  * Parses frontmatter from a .md skill file.
@@ -115,7 +115,7 @@ export class SkillManager {
   /**
    * Create a new user skill. Saves to disk.
    */
-  async create(metadata: SkillMetadata, content: string): Promise<Skill> {
+  async create(metadata: Pick<Skill, 'name' | 'description' | 'shortcut' | 'category'>, content: string): Promise<Skill> {
     // Validate name: only alphanumeric, underscore, hyphen — no path traversal
     if (!/^[a-zA-Z0-9_-]+$/.test(metadata.name)) {
       throw new Error('Skill name must contain only alphanumeric characters, underscores, and hyphens');

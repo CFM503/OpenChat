@@ -3,14 +3,14 @@
 // ============================================================================
 
 import { spawn, type ChildProcess } from 'child_process';
-import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
-import { ConfigManager } from '../configManager.js';
+import type { ConfigManager } from '../configManager.js';
+import { resolveSafePath, setPathConfig } from './pathUtils.js';
 
-// Shared config instance for reading allowedDirectories
-let _config: ConfigManager | null = null;
-export function setGrepGlobToolConfig(config: ConfigManager) { _config = config; }
+export function setGrepGlobToolConfig(config: ConfigManager) {
+  setPathConfig(config);
+}
 
 interface GrepInput {
   pattern: string;
@@ -18,27 +18,6 @@ interface GrepInput {
   glob?: string;
   case_insensitive?: boolean;
   max_results?: number;
-}
-
-/** Resolve search path and ensure it stays within workspace boundary (H-4). */
-function safeSearchPath(inputPath: string | undefined, workingDirectory: string): string | null {
-  if (!inputPath) return workingDirectory;
-  const absPath = path.isAbsolute(inputPath)
-    ? inputPath
-    : path.resolve(workingDirectory, inputPath);
-  const normalized = path.normalize(absPath);
-  const workspaceNorm = path.normalize(workingDirectory);
-  if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) {
-    return normalized;
-  }
-  // Check allowed directories
-  const cfg = _config?.load();
-  const allowed = cfg?.allowedDirectories ?? [];
-  for (const dir of allowed) {
-    const dirNorm = path.normalize(dir);
-    if (normalized === dirNorm || normalized.startsWith(dirNorm + path.sep)) return normalized;
-  }
-  return null;
 }
 
 export const GrepTool: ToolDefinition<GrepInput> = {
@@ -63,7 +42,7 @@ export const GrepTool: ToolDefinition<GrepInput> = {
     const start = Date.now();
 
     // H-4: Validate path stays within workspace
-    const cwd = safeSearchPath(input.path, ctx.workingDirectory);
+    const cwd = resolveSafePath(input.path, ctx.workingDirectory);
     if (!cwd) {
       return {
         success: false,
@@ -171,7 +150,7 @@ export const GlobTool: ToolDefinition<GlobInput> = {
     const start = Date.now();
 
     // H-4: Validate path stays within workspace
-    const cwd = safeSearchPath(input.path, ctx.workingDirectory);
+    const cwd = resolveSafePath(input.path, ctx.workingDirectory);
     if (!cwd) {
       return {
         success: false,

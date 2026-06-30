@@ -55,13 +55,6 @@ export class RegistryClient {
   }
 
   /**
-   * List all packages from all registries.
-   */
-  async listAll(): Promise<RegistryPackage[]> {
-    return this.search('');
-  }
-
-  /**
    * Get details for a specific package.
    */
   async getPackage(name: string): Promise<RegistryPackage | null> {

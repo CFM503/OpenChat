@@ -6,21 +6,21 @@
 import { ProxyAgent } from 'undici';
 import type { ConfigManager, ModelConfig } from './configManager.js';
 
-export interface StreamChunk {
+interface StreamChunk {
   type: 'content' | 'thinking' | 'tool_call';
   content: string;
   toolCalls?: ToolCallDelta[];
   finishReason?: string;
 }
 
-export interface ToolCallDelta {
+interface ToolCallDelta {
   index: number;
   id?: string;
   name?: string;
   arguments?: string;
 }
 
-export interface CompletionParams {
+interface CompletionParams {
   modelId?: string;
   messages: Record<string, any>[];
   tools?: Array<{ type: 'function'; function: any }>;

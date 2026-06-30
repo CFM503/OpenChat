@@ -4,18 +4,18 @@
 
 import { MCPClient, type MCPServerConfig } from './client.js';
 import type { ConfigManager } from '../configManager.js';
-import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolDefinition } from '../tools/types.js';
+import * as registry from '../tools/registry.js';
 
 export class MCPManager {
   private clients: Map<string, MCPClient> = new Map();
   private registeredTools: Map<string, string> = new Map(); // toolName → serverName
   private config: ConfigManager;
-  private registry: ToolRegistry;
+  private registry: typeof registry;
 
-  constructor(config: ConfigManager, registry: ToolRegistry) {
+  constructor(config: ConfigManager, reg: typeof registry) {
     this.config = config;
-    this.registry = registry;
+    this.registry = reg;
   }
 
   /**
@@ -49,7 +49,7 @@ export class MCPManager {
       const mcpTools = await client.listTools();
       const toolDefs = client.toToolDefinitions(mcpTools);
       for (const tool of toolDefs) {
-        this.registry.register(tool);
+        registry.register(tool);
         this.registeredTools.set(tool.name, name);
       }
       console.log(`[mcp:${name}] Registered ${toolDefs.length} tools`);
@@ -72,7 +72,7 @@ export class MCPManager {
     // Unregister tools from this server
     for (const [toolName, serverName] of this.registeredTools) {
       if (serverName === name) {
-        this.registry.unregister(toolName);
+        registry.unregister(toolName);
         this.registeredTools.delete(toolName);
       }
     }
@@ -91,7 +91,7 @@ export class MCPManager {
    * Get all MCP-provided tool definitions.
    */
   getTools(): ToolDefinition[] {
-    return this.registry.getAll().filter(t => t.name.startsWith('mcp_'));
+    return registry.getAll().filter(t => t.name.startsWith('mcp_'));
   }
 
   /**

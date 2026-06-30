@@ -918,16 +918,6 @@ body {
   color: var(--text-primary);
 }
 
-.file-tab-close {
-  font-size: 0.75rem;
-  opacity: 0.5;
-  transition: opacity var(--transition-fast);
-}
-
-.file-tab-close:hover {
-  opacity: 1;
-}
-
 .editor-body {
   flex: 1;
   position: relative;

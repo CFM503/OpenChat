@@ -192,13 +192,6 @@ export class RegistryInstaller {
   }
 
   /**
-   * Update a package to the latest version.
-   */
-  async update(pkgName: string): Promise<InstallResult> {
-    return this.install(pkgName);
-  }
-
-  /**
    * Get list of installed packages.
    */
   async getInstalled(): Promise<InstalledPackage[]> {

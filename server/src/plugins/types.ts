@@ -7,15 +7,13 @@ export interface PluginManifest {
   version: string;
   description: string;
   author?: string;
-  tools: PluginToolDecl[];
-}
-
-export interface PluginToolDecl {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  isReadOnly?: boolean;
-  isDestructive?: boolean;
+  tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    isReadOnly?: boolean;
+    isDestructive?: boolean;
+  }>;
 }
 
 export interface PluginModule {

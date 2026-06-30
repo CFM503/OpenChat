@@ -7,11 +7,11 @@ import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { WebSocketServer, WebSocket } from 'ws';
 
-import { ConfigManager, validateConfig, sanitizeError } from './configManager.js';
+import { ConfigManager, sanitizeError } from './configManager.js';
 import { ProviderGateway } from './providerGateway.js';
 import { AgentLoop } from './agentLoop.js';
 import { SessionManager } from './sessionManager.js';
-import { ToolRegistry } from './tools/registry.js';
+import { register, getAll } from './tools/registry.js';
 import { BashTool } from './tools/BashTool.js';
 import { FileReadTool, FileWriteTool, FileEditTool } from './tools/FileTool.js';
 import { GrepTool, GlobTool, setGrepGlobToolConfig } from './tools/GrepGlobTool.js';
@@ -19,14 +19,10 @@ import { GitTool } from './tools/GitTool.js';
 import { setFileToolConfig } from './tools/FileTool.js';
 import { setBashToolConfig } from './tools/BashTool.js';
 import { SkillManager } from './skills/loader.js';
-import { createSkillsRouter } from './api/skills.js';
 import { MCPManager } from './mcp/manager.js';
-import { createMCPRouter } from './api/mcp.js';
 import { PluginManager } from './plugins/loader.js';
-import { createPluginRouter } from './api/plugins.js';
 import { RegistryClient } from './registry/client.js';
 import { RegistryInstaller } from './registry/installer.js';
-import { createRegistryRouter } from './api/registry.js';
 
 import type { ClientMessage, ServerMessage } from './types.js';
 
@@ -38,7 +34,6 @@ const PORT = parseInt(process.env.OPENCHAT_PORT ?? '3001', 10);
 const config = new ConfigManager(WORKING_DIRECTORY);
 const providers = new ProviderGateway(config);
 const sessions = new SessionManager();
-const tools = new ToolRegistry();
 
 // Share config with tools for allowedDirectories support
 setFileToolConfig(config);
@@ -46,20 +41,20 @@ setBashToolConfig(config);
 setGrepGlobToolConfig(config);
 
 // Register all tools
-tools.register(BashTool);
-tools.register(FileReadTool);
-tools.register(FileWriteTool);
-tools.register(FileEditTool);
-tools.register(GrepTool);
-tools.register(GlobTool);
-tools.register(GitTool);
+register(BashTool);
+register(FileReadTool);
+register(FileWriteTool);
+register(FileEditTool);
+register(GrepTool);
+register(GlobTool);
+register(GitTool);
 
 // Skill and MCP managers
 const userHome = process.env.HOME ?? process.env.USERPROFILE ?? WORKING_DIRECTORY;
 const openchatDir = `${userHome}/.openchat`;
 const skills = new SkillManager(`${openchatDir}/skills`);
-const mcpManager = new MCPManager(config, tools);
-const pluginManager = new PluginManager(`${openchatDir}/plugins`, tools);
+const mcpManager = new MCPManager(config, registry);
+const pluginManager = new PluginManager(`${openchatDir}/plugins`, registry);
 
 // Registry system
 const cfg = config.load();
@@ -73,7 +68,7 @@ const registryInstaller = new RegistryInstaller(
   pluginManager,
 );
 
-const agentLoop = new AgentLoop(providers, tools, WORKING_DIRECTORY);
+const agentLoop = new AgentLoop(providers, registry, WORKING_DIRECTORY);
 
 // ── HTTP API ────────────────────────────────────────────────────────────────
 
@@ -94,14 +89,7 @@ app.get('/api/config', (c) => {
 
 app.post('/api/config', async (c) => {
   const body = await c.req.json();
-  // C-3: Validate config before writing
-  const error = validateConfig(body);
-  if (error) {
-    return c.json({ error }, 400);
-  }
-  // Merge with existing config to preserve API keys not included in the update.
-  // This prevents accidental key loss when the frontend sends a partial config.
-  config.saveWithMerge(body);
+  config.save(body);
   return c.json({ success: true });
 });
 
@@ -137,7 +125,7 @@ app.delete('/api/sessions/:id', (c) => {
 app.get('/api/health', (c) => {
   return c.json({
     status: 'ok',
-    tools: tools.getAll().map(t => t.name),
+    tools: getAll().map(t => t.name),
     workingDirectory: WORKING_DIRECTORY,
     canMakeRequest: providers.canMakeRequest(),
   });
@@ -168,7 +156,7 @@ app.get('/api/discover-models', async (c) => {
 // Tools listing
 app.get('/api/tools', (c) => {
   return c.json(
-    tools.getAll().map(t => ({
+    getAll().map(t => ({
       name: t.name,
       description: t.description,
       isReadOnly: t.isReadOnly,
@@ -177,24 +165,121 @@ app.get('/api/tools', (c) => {
   );
 });
 
-// Skills API
-app.route('/api/skills', createSkillsRouter(skills));
+// ── Skills API ───────────────────────────────────────────────────────────────
 
-// MCP API
-app.route('/api/mcp', createMCPRouter(mcpManager));
+const skillsApp = new Hono();
+skillsApp.get('/', (c) => c.json(skills.getAll().map(s => ({
+  name: s.name, description: s.description, shortcut: s.shortcut,
+  category: s.category, builtin: s.builtin,
+}))));
+skillsApp.get('/:name', (c) => {
+  const skill = skills.get(c.req.param('name'));
+  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  return c.json({ name: skill.name, description: skill.description, shortcut: skill.shortcut, category: skill.category, builtin: skill.builtin, content: skill.content });
+});
+skillsApp.post('/:name/expand', async (c) => {
+  const skill = skills.get(c.req.param('name'));
+  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  return c.json({ expanded: skills.expand(skill, body.selection) });
+});
+skillsApp.post('/', async (c) => {
+  const body = await c.req.json();
+  if (!body.name || !body.shortcut || !body.content) return c.json({ error: 'name, shortcut, and content are required' }, 400);
+  try {
+    const skill = await skills.create({ name: body.name, description: body.description || '', shortcut: body.shortcut, category: body.category }, body.content);
+    return c.json({ success: true, name: skill.name }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+skillsApp.delete('/:name', async (c) => {
+  const deleted = await skills.delete(c.req.param('name'));
+  if (!deleted) return c.json({ error: 'Skill not found or is built-in' }, 404);
+  return c.json({ success: true });
+});
+app.route('/api/skills', skillsApp);
 
-// Plugin API
-app.route('/api/plugins', createPluginRouter(pluginManager));
+// ── MCP API ──────────────────────────────────────────────────────────────────
 
-// Registry API
-app.route('/api/registry', createRegistryRouter(registryClient, registryInstaller));
+const mcpApp = new Hono();
+mcpApp.get('/servers', (c) => c.json(mcpManager.getStatus()));
+mcpApp.post('/servers', async (c) => {
+  const body = await c.req.json();
+  if (!body.name || !body.command) return c.json({ error: 'name and command are required' }, 400);
+  try {
+    await mcpManager.addServer(body.name, { command: body.command, args: body.args, env: body.env });
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+mcpApp.delete('/servers/:name', (c) => { mcpManager.removeServer(c.req.param('name')); return c.json({ success: true }); });
+mcpApp.post('/servers/:name/restart', async (c) => {
+  const status = mcpManager.getStatus().find(s => s.name === c.req.param('name'));
+  if (!status) return c.json({ error: 'Server not found' }, 404);
+  return c.json({ success: true }); // TODO: preserve config and restart
+});
+app.route('/api/mcp', mcpApp);
+
+// ── Plugin API ───────────────────────────────────────────────────────────────
+
+const pluginsApp = new Hono();
+pluginsApp.get('/', (c) => c.json(pluginManager.getAll().map(p => ({
+  name: p.manifest.name, version: p.manifest.version, description: p.manifest.description,
+  author: p.manifest.author, enabled: p.enabled,
+  tools: p.manifest.tools.map(t => ({
+    name: `plugin_${p.manifest.name}_${t.name}`, description: t.description,
+    isReadOnly: t.isReadOnly ?? false, isDestructive: t.isDestructive ?? true,
+  })),
+}))));
+pluginsApp.delete('/:name', (c) => { pluginManager.unload(c.req.param('name')); return c.json({ success: true }); });
+app.route('/api/plugins', pluginsApp);
+
+// ── Registry API ─────────────────────────────────────────────────────────────
+
+const registryApp = new Hono();
+registryApp.get('/search', async (c) => {
+  try { const results = await registryClient.search(c.req.query('q') ?? ''); return c.json({ packages: results }); }
+  catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+registryApp.get('/packages', async (c) => {
+  try { const results = await registryClient.search(''); return c.json({ packages: results }); }
+  catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+registryApp.get('/packages/:name', async (c) => {
+  const pkg = await registryClient.getPackage(c.req.param('name'));
+  if (!pkg) return c.json({ error: 'Package not found' }, 404);
+  return c.json(pkg);
+});
+registryApp.post('/install', async (c) => {
+  const body = await c.req.json();
+  if (!body.name) return c.json({ error: 'name is required' }, 400);
+  const result = await registryInstaller.install(body.name);
+  return c.json(result, result.success ? 200 : 400);
+});
+registryApp.delete('/uninstall/:name', async (c) => {
+  const result = await registryInstaller.uninstall(c.req.param('name'));
+  return c.json(result, result.success ? 200 : 400);
+});
+registryApp.post('/update', async (c) => {
+  const body = await c.req.json();
+  if (!body.name) return c.json({ error: 'name is required' }, 400);
+  const result = await registryInstaller.install(body.name);
+  return c.json(result, result.success ? 200 : 400);
+});
+registryApp.get('/updates', async (c) => {
+  const updates = await registryInstaller.checkUpdates();
+  return c.json({ updates });
+});
+registryApp.get('/installed', async (c) => {
+  const installed = await registryInstaller.getInstalled();
+  return c.json({ installed });
+});
+app.route('/api/registry', registryApp);
 
 // ── HTTP Server + WebSocket ─────────────────────────────────────────────────
 
 const httpServer = serve({ fetch: app.fetch, port: PORT }, async (info) => {
   console.log(`\n  ✨ OpenChat Backend running at http://localhost:${info.port}`);
   console.log(`  📂 Working directory: ${WORKING_DIRECTORY}`);
-  console.log(`  🔧 Tools: ${tools.getAll().map(t => t.name).join(', ')}`);
+  console.log(`  🔧 Tools: ${getAll().map(t => t.name).join(', ')}`);
 
   // Load skills
   await skills.load();

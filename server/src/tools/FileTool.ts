@@ -6,23 +6,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
-import { ConfigManager } from '../configManager.js';
+import type { ConfigManager } from '../configManager.js';
+import { resolveSafePath, setPathConfig } from './pathUtils.js';
 
-// Shared config instance for reading allowedDirectories
-let _config: ConfigManager | null = null;
-export function setFileToolConfig(config: ConfigManager) { _config = config; }
-
-function isPathAllowed(normalized: string, workspace: string): boolean {
-  const workspaceNorm = path.normalize(workspace);
-  if (normalized === workspaceNorm || normalized.startsWith(workspaceNorm + path.sep)) return true;
-  // Check allowed directories
-  const cfg = _config?.load();
-  const allowed = cfg?.allowedDirectories ?? [];
-  for (const dir of allowed) {
-    const dirNorm = path.normalize(dir);
-    if (normalized === dirNorm || normalized.startsWith(dirNorm + path.sep)) return true;
-  }
-  return false;
+export function setFileToolConfig(config: ConfigManager) {
+  setPathConfig(config);
 }
 
 /**

@@ -17,8 +17,6 @@ export interface RegistryPackage {
 
 export interface RegistryResponse {
   packages: RegistryPackage[];
-  total?: number;
-  page?: number;
 }
 
 export interface InstalledPackage {

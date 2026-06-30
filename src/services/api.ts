@@ -8,7 +8,7 @@ import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, Insta
 
 export type { ChatMessage, ServerMessage, ClientMessage };
 
-export interface StreamCallbacks {
+interface StreamCallbacks {
   onContent: (text: string) => void;
   onThinking: (text: string) => void;
   onToolEvent: (event: ToolEvent) => void;
@@ -19,7 +19,7 @@ export interface StreamCallbacks {
 const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY = 1000;  // 1 second
 
-export class BackendClient {
+class BackendClient {
   private ws: WebSocket | null = null;
   private url: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
