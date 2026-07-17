@@ -181,6 +181,7 @@ class BackendClient {
     messages: ChatMessage[],
     modelId: string | undefined,
     callbacks: StreamCallbacks,
+    options?: { enableThinking?: boolean },
   ): Promise<boolean> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       const ok = await this.connect();
@@ -189,7 +190,12 @@ class BackendClient {
 
     this.callbacks = callbacks;
 
-    const msg: ClientMessage = { type: 'chat', messages, modelId };
+    const msg: ClientMessage = {
+      type: 'chat',
+      messages,
+      modelId,
+      enableThinking: options?.enableThinking,
+    };
     this.ws!.send(JSON.stringify(msg));
     return true;
   }

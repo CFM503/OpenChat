@@ -1,15 +1,16 @@
 {
   "name": "openchat",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "type": "module",
   "bin": {
     "openchat": "./bin/openchat.mjs"
   },
   "scripts": {
+    "ports": "node scripts/check-ports.mjs",
     "dev": "vite",
     "dev:server": "tsx server/src/index.ts",
-    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "dev:all": "node scripts/check-ports.mjs && concurrently -n server,web -c cyan,magenta \"npm run dev:server\" \"npm run dev\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",

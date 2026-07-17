@@ -105,18 +105,35 @@ npm run test:run
 
 ### 3. Launch Development Server
 
-**Full stack (recommended)** — start backend + frontend together:
+**Full stack (recommended)** — checks ports 3000/3001 first, then starts backend + frontend:
 ```bash
 npm run dev:all
 ```
 
+Only check ports:
+```bash
+npm run ports
+```
+
 Or start them separately:
 ```bash
-# Terminal 1: Backend gateway (port 3001)
+# Terminal 1: Backend gateway (port 3001) — fails fast if busy
 npm run dev:server
 
 # Terminal 2: Frontend dev server (port 3000)
 npm run dev
+```
+
+If a port is taken (Windows):
+```bash
+netstat -ano | findstr :3000
+taskkill /F /PID <PID>
+```
+
+Custom ports:
+```bash
+# PowerShell
+$env:OPENCHAT_FRONTEND_PORT=3100; $env:OPENCHAT_PORT=3101; npm run dev:all
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your web browser.
@@ -261,4 +278,4 @@ Planned / optional next steps (not blocking 2.1.x):
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system layout and history.
 
-**Version:** 2.1.0 · **Last updated:** 2026-07-17
+**Version:** 2.2.0 · **Last updated:** 2026-07-17

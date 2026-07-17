@@ -78,7 +78,16 @@ async function cmdServe(argv) {
     OPENCHAT_CWD: cwd,
   };
 
-  // Prefer tsx for dev; fall back to node if prebuilt
+  // Port pre-check (same script as npm run ports)
+  const checkScript = path.join(ROOT, 'scripts', 'check-ports.mjs');
+  const check = spawn(
+    process.execPath,
+    [checkScript, '--backend'],
+    { cwd: ROOT, env, stdio: 'inherit', shell: false },
+  );
+  const checkCode = await new Promise((resolve) => check.on('exit', resolve));
+  if (checkCode !== 0) process.exit(checkCode ?? 1);
+
   const entry = path.join(ROOT, 'server', 'src', 'index.ts');
   console.log(`Starting OpenChat backend on :${port}`);
   console.log(`Working directory: ${cwd}`);

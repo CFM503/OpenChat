@@ -27,6 +27,8 @@ interface CompletionParams {
   messages: Record<string, any>[];
   tools?: Array<{ type: 'function'; function: any }>;
   signal?: AbortSignal;
+  /** false = disable deep thinking / CoT when provider supports it */
+  enableThinking?: boolean;
 }
 
 export class ProviderGateway {
@@ -97,17 +99,31 @@ export class ProviderGateway {
       messages: params.messages,
       tools,
       stream: true,
+      enableThinking: params.enableThinking,
     });
 
+    // Drop thinking stream events client-side when disabled (belt + suspenders)
+    const suppressThinking = params.enableThinking === false;
+
     if (built.apiStyle === 'ollama') {
-      yield* this.streamNdjson(built, params.signal, 'ollama');
+      yield* this.filterThinking(this.streamNdjson(built, params.signal, 'ollama'), suppressThinking);
       return;
     }
     if (built.apiStyle === 'anthropic') {
-      yield* this.streamAnthropropic(built, params.signal);
+      yield* this.filterThinking(this.streamAnthropropic(built, params.signal), suppressThinking);
       return;
     }
-    yield* this.streamOpenAISse(built, params.signal);
+    yield* this.filterThinking(this.streamOpenAISse(built, params.signal), suppressThinking);
+  }
+
+  private async *filterThinking(
+    source: AsyncGenerator<StreamChunk>,
+    suppress: boolean,
+  ): AsyncGenerator<StreamChunk> {
+    for await (const chunk of source) {
+      if (suppress && chunk.type === 'thinking') continue;
+      yield chunk;
+    }
   }
 
   private async *streamOpenAISse(

@@ -6,6 +6,9 @@ import { backendClient } from '../services/api';
 export function useSessions(
   messages: ChatMessage[],
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+  resetToWelcome?: () => void,
+  /** Skip auto-save while streaming to avoid N POSTs per second */
+  isStreaming?: boolean,
 ) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -29,38 +32,37 @@ export function useSessions(
 
   useEffect(() => {
     if (!activeSessionId || messages.length === 0) return;
+    // Don't hammer the network while tokens are streaming
+    if (isStreaming) return;
     const timer = setTimeout(async () => {
       await backendClient.updateSession(activeSessionId, messages).catch(() => {});
-      const list = await backendClient.getSessions().catch(() => null);
-      if (list) {
-        setSessions(
-          list.map(s => ({
-            id: s.id,
-            title: s.title,
-            messageCount: s.messages.length,
-            createdAt: s.createdAt,
-            updatedAt: s.updatedAt,
-          })),
-        );
-      }
-    }, 1000);
+      // Lightweight list refresh: only update the active row counts, not full re-fetch every time
+      setSessions(prev =>
+        prev.map(s =>
+          s.id === activeSessionId
+            ? { ...s, messageCount: messages.length, updatedAt: Date.now() }
+            : s,
+        ),
+      );
+    }, 1500);
     return () => clearTimeout(timer);
-  }, [messages, activeSessionId]);
+  }, [messages, activeSessionId, isStreaming]);
 
   const handleNewSession = useCallback(async () => {
     if (activeSessionId && messages.length > 0) {
       await backendClient.updateSession(activeSessionId, messages).catch(() => {});
     }
-    setMessages([]);
     setActiveSessionId(null);
-  }, [activeSessionId, messages, setMessages]);
+    if (resetToWelcome) resetToWelcome();
+    else setMessages([]);
+  }, [activeSessionId, messages, setMessages, resetToWelcome]);
 
   const handleSelectSession = useCallback(
     async (id: string) => {
       const session = await backendClient.getSession(id);
       if (session) {
         setActiveSessionId(id);
-        setMessages(session.messages);
+        setMessages(session.messages.length ? session.messages : []);
       }
     },
     [setMessages],
@@ -72,10 +74,11 @@ export function useSessions(
       setSessions(prev => prev.filter(s => s.id !== id));
       if (activeSessionId === id) {
         setActiveSessionId(null);
-        setMessages([]);
+        if (resetToWelcome) resetToWelcome();
+        else setMessages([]);
       }
     },
-    [activeSessionId, setMessages],
+    [activeSessionId, setMessages, resetToWelcome],
   );
 
   const ensureSession = useCallback(async (): Promise<string | null> => {

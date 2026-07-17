@@ -45,6 +45,7 @@ export function attachWebSocketHandlers(
             await rt.agentLoop.run({
               messages: msg.messages,
               modelId: msg.modelId,
+              enableThinking: msg.enableThinking,
               signal: currentAbort.signal,
               onEvent: (event) => {
                 if (ws.readyState === 1 /* OPEN */) {

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.0] - 2026-07-17
+
+### Added
+- **Deep thinking toggle** in chat footer (bulb button): disable CoT/reasoning per preference; persisted in `localStorage`
+  - Provider-aware body flags (DeepSeek `thinking.disabled`, Qwen `enable_thinking`, o-series `reasoning_effort`, etc.)
+  - Server drops `thinking` stream events when disabled
+- **Startup port occupancy checks**: `npm run ports`, pre-check in `dev:all`, hard fail on backend bind, Vite frontend hard fail / backend warn
+  - Env: `OPENCHAT_PORT`, `OPENCHAT_FRONTEND_PORT`; Windows/Unix kill hints
+- **Chat live activity bar** (connecting / searching / packing / tool / streaming) with elapsed timer
+- **Connection banner** + softer heartbeat (15s, skip HTTP when WS connected)
+- **Stream rAF batching** and lightweight markdown while streaming (full highlight after done)
+
+### Changed
+- Session auto-save skipped during streaming; lighter session list refresh
+- Markdown no longer uses expensive `highlightAuto`; historical bubbles memoized
+- Conversation outbound filter (welcome/empty shells omitted); system messages hidden in feed
+
+### Fixed
+- Retry no longer offered on welcome message; stop leaves clear `*(Stopped)*` state
+
+---
+
 ## [2.1.0] - 2026-07-17
 
 Minor release consolidating the agent platform work from the 2.0.0-alpha.18–21 line.

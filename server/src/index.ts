@@ -13,8 +13,13 @@ import fs from 'fs';
 import { createRuntime, bootstrapRuntime } from './runtime.js';
 import { registerRoutes } from './routes/index.js';
 import { attachWebSocketHandlers } from './ws/handler.js';
+import { assertPortFree } from './portCheck.js';
 
 const rt = createRuntime();
+
+// Fail fast if OPENCHAT_PORT is taken (before bind)
+await assertPortFree(rt.port, 'OpenChat backend');
+
 const app = new Hono();
 
 app.use(
@@ -23,9 +28,15 @@ app.use(
     origin: [
       'http://localhost:3000',
       'http://127.0.0.1:3000',
-      // same-origin when serving dist from this port
       `http://localhost:${rt.port}`,
       `http://127.0.0.1:${rt.port}`,
+      // allow custom frontend port via env
+      ...(process.env.OPENCHAT_FRONTEND_PORT
+        ? [
+            `http://localhost:${process.env.OPENCHAT_FRONTEND_PORT}`,
+            `http://127.0.0.1:${process.env.OPENCHAT_FRONTEND_PORT}`,
+          ]
+        : []),
     ],
   }),
 );
@@ -67,6 +78,16 @@ const httpServer = serve({ fetch: app.fetch, port: rt.port }, async (info) => {
     console.log(`  ⚠️  No model configured — open the web UI to set one up`);
   }
   console.log('');
+});
+
+// Surface listen errors that slip past pre-check (race)
+(httpServer as any).on?.('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Failed to bind port ${rt.port}: already in use (EADDRINUSE).`);
+    process.exit(1);
+  }
+  console.error(err);
+  process.exit(1);
 });
 
 const wss = new WebSocketServer({ server: httpServer as any, path: '/ws' });

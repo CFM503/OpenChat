@@ -40,7 +40,13 @@ export interface ToolCallResult {
 // ── WebSocket Protocol ──────────────────────────────────────────────────────
 
 export type ClientMessage =
-  | { type: 'chat'; messages: ChatMessage[]; modelId?: string }
+  | {
+      type: 'chat';
+      messages: ChatMessage[];
+      modelId?: string;
+      /** When false, ask the provider to skip chain-of-thought / deep thinking */
+      enableThinking?: boolean;
+    }
   | { type: 'abort' }
   | { type: 'ping' };
 

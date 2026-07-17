@@ -24,6 +24,15 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<
     'models' | 'search' | 'network' | 'extensions' | 'routing'
   >('models');
+  const [enableThinking, setEnableThinking] = useState(() => {
+    const saved = localStorage.getItem('openchat_enable_thinking');
+    // Default ON so reasoning models keep previous behavior
+    return saved === null ? true : saved === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('openchat_enable_thinking', String(enableThinking));
+  }, [enableThinking]);
 
   const backend = useBackend();
   const config = useConfig();
@@ -43,6 +52,7 @@ export function App() {
     searchApiKey: config.searchApiKey,
     searchBaseUrl: config.searchBaseUrl,
     hasSearchKey: config.hasSearchKey,
+    enableThinking,
     ensureSessionRef,
     onNeedSearchSettings: () => {
       setSettingsTab('search');
@@ -50,7 +60,12 @@ export function App() {
     },
   });
 
-  const sessions = useSessions(chat.messages, chat.setMessages);
+  const sessions = useSessions(
+    chat.messages,
+    chat.setMessages,
+    chat.resetToWelcome,
+    chat.isStreaming,
+  );
   ensureSessionRef.current = sessions.ensureSession;
 
   const tasks = useTasks(
@@ -158,8 +173,22 @@ export function App() {
               ))}
             </select>
             <div className="model-indicator">
-              <span className={`status-dot ${backend.backendAvailable ? 'status-dot-active' : ''}`} />
-              <span className="model-label">{modeLabel}</span>
+              <span
+                className={`status-dot ${
+                  backend.connectionState === 'online'
+                    ? 'status-dot-active'
+                    : backend.connectionState === 'reconnecting'
+                      ? 'status-dot-warn'
+                      : ''
+                }`}
+              />
+              <span className="model-label">
+                {backend.connectionState === 'offline'
+                  ? 'Offline'
+                  : backend.connectionState === 'reconnecting'
+                    ? 'Reconnecting'
+                    : modeLabel}
+              </span>
             </div>
             {chat.lastPackStats && (
               <span
@@ -233,6 +262,16 @@ export function App() {
             webSearchEnabled={config.webSearchEnabled}
             onToggleWebSearch={handleToggleWebSearch}
             hasSearchKey={config.hasSearchKey}
+            enableThinking={enableThinking}
+            onToggleThinking={setEnableThinking}
+            activity={chat.activity}
+            connectionState={backend.connectionState}
+            onReconnect={backend.reconnect}
+            packStatsLabel={
+              chat.lastPackStats && !chat.isStreaming
+                ? `Last context ~${chat.lastPackStats.estimatedTokens} tok (${chat.lastPackStats.strategy})`
+                : null
+            }
           />
         </div>
 

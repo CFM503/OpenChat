@@ -167,6 +167,99 @@ function convertToAnthropicMessages(messages: Record<string, any>[]): Record<str
 }
 
 /**
+ * Apply enable/disable deep-thinking for multi-vendor APIs.
+ * enableThinking=false tries to turn off CoT where the provider supports it.
+ */
+export function applyThinkingPreference(
+  body: Record<string, any>,
+  model: ModelConfig,
+  enableThinking: boolean | undefined,
+  apiStyle: 'openai' | 'ollama' | 'anthropic',
+): void {
+  // undefined → leave provider default
+  if (enableThinking === undefined) return;
+
+  const m = (model.model || '').toLowerCase();
+  const ep = (model.endpoint || '').toLowerCase();
+
+  if (enableThinking) {
+    // Explicitly enable where APIs have a toggle (hybrid chat/reasoner models)
+    if (apiStyle === 'anthropic') {
+      // Only set if user explicitly wants thinking — keep mild budget
+      if (!body.thinking) {
+        body.thinking = { type: 'enabled', budget_tokens: 8000 };
+      }
+      return;
+    }
+    if (m.includes('deepseek') || ep.includes('deepseek')) {
+      body.thinking = { type: 'enabled' };
+      return;
+    }
+    if (m.includes('qwen') || ep.includes('dashscope') || ep.includes('aliyuncs')) {
+      body.enable_thinking = true;
+      return;
+    }
+    if (m.includes('glm') || ep.includes('bigmodel')) {
+      body.thinking = { type: 'enabled' };
+      return;
+    }
+    // o-series: leave default (always reasons)
+    return;
+  }
+
+  // ── Disable thinking ──────────────────────────────────────────────
+  if (apiStyle === 'anthropic') {
+    delete body.thinking;
+    return;
+  }
+
+  if (apiStyle === 'ollama') {
+    // No standard switch; nothing to do
+    return;
+  }
+
+  // DeepSeek (chat with optional thinking / reasoner hybrids)
+  if (m.includes('deepseek') || ep.includes('deepseek')) {
+    body.thinking = { type: 'disabled' };
+    return;
+  }
+
+  // Qwen / DashScope OpenAI-compat
+  if (m.includes('qwen') || ep.includes('dashscope') || ep.includes('aliyuncs')) {
+    body.enable_thinking = false;
+    return;
+  }
+
+  // Zhipu GLM
+  if (m.includes('glm') || ep.includes('bigmodel') || ep.includes('zhipu')) {
+    body.thinking = { type: 'disabled' };
+    return;
+  }
+
+  // Kimi / Moonshot
+  if (m.includes('kimi') || m.includes('moonshot') || ep.includes('moonshot')) {
+    body.enable_thinking = false;
+    return;
+  }
+
+  // Doubao / Volcengine
+  if (m.includes('doubao') || ep.includes('volces') || ep.includes('volcengine')) {
+    body.thinking = { type: 'disabled' };
+    return;
+  }
+
+  // OpenAI o-series / gpt-5 reasoning: lowest effort when supported
+  if (/^o[1-9]/.test(m) || m.includes('o1-') || m.includes('o3-') || m.includes('o4-') || m.includes('gpt-5')) {
+    body.reasoning_effort = 'low';
+    return;
+  }
+
+  // Generic OpenAI-compat gateways (SiliconFlow, etc.)
+  body.enable_thinking = false;
+  body.thinking = { type: 'disabled' };
+}
+
+/**
  * Build fetch-ready request for the model.
  */
 export function buildCompletionRequest(
@@ -175,6 +268,8 @@ export function buildCompletionRequest(
     messages: Record<string, any>[];
     tools?: Array<{ type: 'function'; function: any }>;
     stream?: boolean;
+    /** false = ask provider to skip deep thinking / CoT */
+    enableThinking?: boolean;
   },
 ): BuiltRequest {
   const caps = resolveModelCaps(model);
@@ -259,6 +354,8 @@ export function buildCompletionRequest(
       }));
     }
 
+    applyThinkingPreference(body, model, params.enableThinking, 'anthropic');
+
     if (model.extraBody) Object.assign(body, model.extraBody);
 
     return {
@@ -324,6 +421,15 @@ export function buildCompletionRequest(
     body.tool_choice = 'auto';
     if (caps.supportsParallelToolCalls === false) {
       body.parallel_tool_calls = false;
+    }
+  }
+
+  applyThinkingPreference(body, model, params.enableThinking, 'openai');
+
+  // When thinking is off, allow temperature again for hybrid models
+  if (params.enableThinking === false && model.supportsTemperature !== false) {
+    if (body.temperature === undefined && model.temperature != null) {
+      body.temperature = model.temperature;
     }
   }
 

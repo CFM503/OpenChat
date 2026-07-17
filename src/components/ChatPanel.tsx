@@ -1,9 +1,8 @@
 // ============================================================================
-// ChatPanel Component
-// Full markdown rendering, code syntax highlighting, retry, and skills
+// ChatPanel — messages, skills, attachments, live activity feedback
 // ============================================================================
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
 import { Marked } from 'marked';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -20,7 +19,6 @@ import sql from 'highlight.js/lib/languages/sql';
 import yaml from 'highlight.js/lib/languages/yaml';
 import markdown from 'highlight.js/lib/languages/markdown';
 
-// Register common languages
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('js', javascript);
 hljs.registerLanguage('typescript', typescript);
@@ -42,10 +40,12 @@ hljs.registerLanguage('yaml', yaml);
 hljs.registerLanguage('yml', yaml);
 hljs.registerLanguage('markdown', markdown);
 hljs.registerLanguage('md', markdown);
-import type { ChatMessage, ChatAttachment, ToolEvent, SkillInfo } from '../core/types';
+
+import type { ChatMessage, ChatAttachment, SkillInfo, ChatActivity } from '../core/types';
 import { ToolOutput } from './ToolOutput';
 import { SkillPicker } from './SkillPicker';
 import { backendClient } from '../services/api';
+import type { ConnectionState } from '../hooks/useBackend';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -56,21 +56,33 @@ interface ChatPanelProps {
   webSearchEnabled?: boolean;
   onToggleWebSearch?: (enabled: boolean) => void;
   hasSearchKey?: boolean;
-  onViewContext?: () => void;
+  /** Deep thinking / CoT (default true) */
+  enableThinking?: boolean;
+  onToggleThinking?: (enabled: boolean) => void;
+  activity?: ChatActivity;
+  connectionState?: ConnectionState;
+  onReconnect?: () => void;
+  packStatsLabel?: string | null;
 }
 
-// ── Markdown Renderer ─────────────────────────────────────────────────────
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-const marked = new Marked({
+/** Full markdown + syntax highlight (finished messages only) */
+const markedFull = new Marked({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
       let language = lang || 'text';
-      if (!hljs.getLanguage(language)) {
-        language = 'text';
-      }
-      const highlighted = lang
-        ? hljs.highlight(text, { language }).value
-        : hljs.highlightAuto(text).value;
+      if (!hljs.getLanguage(language)) language = 'text';
+      // Never use highlightAuto — very expensive on long streams
+      const highlighted = language !== 'text'
+        ? hljs.highlight(text, { language, ignoreIllegals: true }).value
+        : escapeHtml(text);
       return `<div class="code-block-wrapper"><pre><code class="hljs language-${language}">${highlighted}</code></pre><button class="code-copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},2000)})">Copy</button></div>`;
     },
     link({ href, text }: { href: string; text: string }) {
@@ -82,83 +94,199 @@ const marked = new Marked({
   },
 });
 
-function renderMarkdown(content: string): string {
+/** Cheap path while streaming: escape + basic newlines, skip hljs entirely */
+function renderMarkdownFast(content: string): string {
   if (!content) return '';
+  // Preserve fenced code as plain <pre> without highlight
+  const withCode = content.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+    return `<div class="code-block-wrapper"><pre><code class="hljs">${escapeHtml(code)}</code></pre></div>`;
+  });
+  return withCode
+    .split(/\n\n+/)
+    .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
+function renderMarkdown(content: string, fast = false): string {
+  if (!content) return '';
+  if (fast) return renderMarkdownFast(content);
   try {
-    return marked.parse(content) as string;
+    return markedFull.parse(content) as string;
   } catch {
-    return content;
+    return renderMarkdownFast(content);
   }
 }
 
-// ── Collapsible Thinking ──────────────────────────────────────────────────
+const markdownCache = new Map<string, string>();
+const MARKDOWN_CACHE_MAX = 80;
 
-function CollapsibleThinking({ thinkingContent }: { thinkingContent: string }) {
+function renderMarkdownCached(content: string, streaming: boolean): string {
+  if (streaming) return renderMarkdown(content, true);
+  const hit = markdownCache.get(content);
+  if (hit) return hit;
+  const html = renderMarkdown(content, false);
+  if (markdownCache.size > MARKDOWN_CACHE_MAX) {
+    const first = markdownCache.keys().next().value;
+    if (first !== undefined) markdownCache.delete(first);
+  }
+  markdownCache.set(content, html);
+  return html;
+}
+
+function CollapsibleThinking({ thinkingContent, streaming }: { thinkingContent: string; streaming?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(true);
-  if (!thinkingContent || thinkingContent.trim().length === 0) return null;
-
+  const html = useMemo(
+    () => (thinkingContent?.trim() ? renderMarkdownCached(thinkingContent, !!streaming) : ''),
+    [thinkingContent, streaming],
+  );
+  if (!thinkingContent?.trim()) return null;
   return (
     <div className="thinking-block">
-      <div className="thinking-header" onClick={() => setIsExpanded(prev => !prev)}>
-        <span className="thinking-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: '6px' }}>
-            <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-4.88 2.5 2.5 0 0 1 0-3.12A2.5 2.5 0 0 1 9.5 2Z" />
-            <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-4.88 2.5 2.5 0 0 0 0-3.12A2.5 2.5 0 0 0 14.5 2Z" />
-          </svg>
-          Thinking Process
-        </span>
+      <div className="thinking-header" onClick={() => setIsExpanded(p => !p)}>
+        <span className="thinking-title">Thinking</span>
         <svg className={`thinking-chevron ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="9 18 15 12 9 6" />
         </svg>
       </div>
       {isExpanded && (
-        <div className="thinking-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(thinkingContent) }} />
+        <div className="thinking-content" dangerouslySetInnerHTML={{ __html: html }} />
       )}
     </div>
   );
 }
 
-// ── Message Copy Button ───────────────────────────────────────────────────
+const MessageBubble = memo(function MessageBubble({
+  content,
+  streaming,
+}: {
+  content: string;
+  streaming?: boolean;
+}) {
+  const html = useMemo(
+    () => renderMarkdownCached(content, !!streaming),
+    [content, streaming],
+  );
+  return (
+    <div className="message-bubble">
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+      {streaming && content && <span className="stream-cursor" aria-hidden />}
+    </div>
+  );
+});
+
+const MessageRow = memo(function MessageRow({
+  msg,
+  showRetry,
+  onRetry,
+  activityLabel,
+}: {
+  msg: ChatMessage;
+  showRetry: boolean;
+  onRetry?: () => void;
+  activityLabel?: string;
+}) {
+  return (
+    <div className={`message-item ${msg.role === 'user' ? 'user' : 'assistant'}`}>
+      {msg.role === 'assistant' && msg.thinking && (
+        <CollapsibleThinking thinkingContent={msg.thinking} streaming={msg.isStreaming} />
+      )}
+      {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
+        <div className="tool-events">
+          {msg.toolEvents.map((evt, idx) => (
+            <ToolOutput
+              key={evt.toolCallId + '-' + idx}
+              toolName={evt.name}
+              status={
+                evt.type === 'start' && !evt.result
+                  ? 'running'
+                  : evt.result?.success
+                    ? 'success'
+                    : 'error'
+              }
+              input={evt.input}
+              output={evt.result?.output ?? evt.result?.error}
+              duration={evt.result?.duration}
+            />
+          ))}
+        </div>
+      )}
+      {msg.role === 'assistant' && !msg.content && !msg.thinking && msg.isStreaming && (
+        <div className="message-bubble assistant-thinking">
+          <div className="thinking-dots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </div>
+          <span className="thinking-label">{activityLabel || 'Waiting for model…'}</span>
+        </div>
+      )}
+      {msg.content && (
+        <MessageBubble content={msg.content} streaming={msg.isStreaming} />
+      )}
+      {msg.attachments && msg.attachments.length > 0 && (
+        <div className="message-attachments">
+          {msg.attachments.map((attach, idx) =>
+            attach.type.startsWith('image/') ? (
+              <div key={idx} className="message-attachment-image-wrapper">
+                <img src={attach.content} alt={attach.name} className="message-attachment-image" />
+              </div>
+            ) : (
+              <TextAttachmentCard key={idx} attachment={attach} />
+            ),
+          )}
+        </div>
+      )}
+      <div className="message-info">
+        <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+        <span>·</span>
+        <span>
+          {new Date(msg.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })}
+        </span>
+        {msg.content && !msg.isStreaming && (
+          <>
+            <span>·</span>
+            <MessageCopyButton content={msg.content} />
+          </>
+        )}
+        {showRetry && onRetry && (
+          <>
+            <span>·</span>
+            <RetryButton onClick={onRetry} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+});
 
 function MessageCopyButton({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
   return (
-    <button className="msg-copy-btn" onClick={handleCopy} title="Copy message content">
-      {copied ? (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: 'var(--color-success)' }}>
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      ) : (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-      )}
+    <button
+      className="msg-copy-btn"
+      onClick={() => {
+        navigator.clipboard.writeText(content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      title="Copy"
+    >
       <span style={{ color: copied ? 'var(--color-success)' : 'inherit' }}>{copied ? 'Copied!' : 'Copy'}</span>
     </button>
   );
 }
 
-// ── Retry Button ──────────────────────────────────────────────────────────
-
 function RetryButton({ onClick }: { onClick: () => void }) {
   return (
-    <button className="msg-retry-btn" onClick={onClick} title="Retry this response">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="23 4 23 10 17 10" />
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-      </svg>
+    <button className="msg-retry-btn" onClick={onClick} title="Retry">
       <span>Retry</span>
     </button>
   );
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────
 
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -170,25 +298,12 @@ function TextAttachmentCard({ attachment }: { attachment: ChatAttachment }) {
   const [isExpanded, setIsExpanded] = useState(false);
   return (
     <div className="message-attachment-file-card">
-      <div className="message-attachment-file-header" onClick={() => setIsExpanded(prev => !prev)}>
+      <div className="message-attachment-file-header" onClick={() => setIsExpanded(p => !p)}>
         <div className="message-attachment-file-header-left">
-          <span className="staged-attachment-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-          </span>
+          <span className="staged-attachment-icon">📄</span>
           <div className="message-attachment-file-name" title={attachment.name}>{attachment.name}</div>
           <span className="message-attachment-file-size">({formatSize(attachment.size)})</span>
         </div>
-        <span className={`message-attachment-file-toggle ${isExpanded ? 'expanded' : ''}`}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </span>
       </div>
       {isExpanded && (
         <pre className="message-attachment-file-preview"><code>{attachment.content}</code></pre>
@@ -197,7 +312,83 @@ function TextAttachmentCard({ attachment }: { attachment: ChatAttachment }) {
   );
 }
 
-// ── Main ChatPanel ────────────────────────────────────────────────────────
+function ActivityBar({
+  activity,
+  isStreaming,
+  packStatsLabel,
+}: {
+  activity?: ChatActivity;
+  isStreaming: boolean;
+  packStatsLabel?: string | null;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!isStreaming || !activity || activity.phase === 'idle') {
+      setElapsed(0);
+      return;
+    }
+    const tick = () => setElapsed(Math.floor((Date.now() - activity.startedAt) / 1000));
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [isStreaming, activity?.phase, activity?.startedAt]);
+
+  if (!isStreaming || !activity || activity.phase === 'idle') {
+    if (packStatsLabel) {
+      return (
+        <div className="chat-activity idle">
+          <span className="chat-activity-label">{packStatsLabel}</span>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const icon =
+    activity.phase === 'searching' ? '🔍' :
+    activity.phase === 'tool' ? '🔧' :
+    activity.phase === 'thinking' ? '💭' :
+    activity.phase === 'streaming' ? '✨' :
+    activity.phase === 'error' ? '⚠️' :
+    activity.phase === 'connecting' || activity.phase === 'sending' ? '📡' :
+    '⏳';
+
+  return (
+    <div className={`chat-activity phase-${activity.phase}`}>
+      <span className="chat-activity-pulse" />
+      <span className="chat-activity-icon">{icon}</span>
+      <span className="chat-activity-label">{activity.label}</span>
+      {activity.detail && (
+        <span className="chat-activity-detail" title={activity.detail}>{activity.detail}</span>
+      )}
+      <span className="chat-activity-time">{elapsed}s</span>
+    </div>
+  );
+}
+
+function ConnectionBanner({
+  state,
+  onReconnect,
+}: {
+  state?: ConnectionState;
+  onReconnect?: () => void;
+}) {
+  if (!state || state === 'online' || state === 'checking') return null;
+  return (
+    <div className={`connection-banner ${state}`}>
+      <span>
+        {state === 'offline' && 'Backend offline — start with npm run dev:all (demo mode if no model key)'}
+        {state === 'reconnecting' && 'Reconnecting to backend…'}
+      </span>
+      {onReconnect && (
+        <button type="button" className="btn-ghost btn-sm" onClick={onReconnect}>
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function ChatPanel({
   messages,
@@ -208,15 +399,18 @@ export function ChatPanel({
   webSearchEnabled = false,
   onToggleWebSearch = () => {},
   hasSearchKey = false,
-  onViewContext = () => {},
+  enableThinking = true,
+  onToggleThinking = () => {},
+  activity,
+  connectionState,
+  onReconnect,
+  packStatsLabel,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState('');
   const [stagedAttachments, setStagedAttachments] = useState<ChatAttachment[]>([]);
   const [showContext, setShowContext] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Skill picker state
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [skillFilter, setSkillFilter] = useState('');
@@ -239,7 +433,6 @@ export function ChatPanel({
 
   const handleSkillSelect = async (skill: SkillInfo) => {
     setShowSkillPicker(false);
-    // Capture trailing args after /skill-name
     const typed = inputText.trim();
     const shortcut = skill.shortcut.replace(/^\//, '');
     let args = '';
@@ -252,21 +445,17 @@ export function ChatPanel({
       }
     }
     const expanded = await backendClient.expandSkill(skill.name, undefined, args);
-    if (expanded) {
-      setInputText(expanded);
-    } else {
-      setInputText(skill.content || skill.shortcut + (args ? ' ' + args : ' '));
-    }
+    setInputText(expanded || skill.content || skill.shortcut + (args ? ' ' + args : ' '));
   };
 
-  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     Array.from(files).forEach(file => {
       if (file.size > MAX_FILE_SIZE) {
-        alert(`File "${file.name}" is too large (${formatSize(file.size)}). Maximum size is 50MB.`);
+        alert(`File "${file.name}" is too large (${formatSize(file.size)}). Max 50MB.`);
         return;
       }
       const isImage = file.type.startsWith('image/');
@@ -285,10 +474,6 @@ export function ChatPanel({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleRemoveStaged = (index: number) => {
-    setStagedAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
   const handleSend = () => {
     if (isStreaming) return;
     if (inputText.trim().length === 0 && stagedAttachments.length === 0) return;
@@ -304,16 +489,35 @@ export function ChatPanel({
     }
   };
 
+  // Scroll at most once per frame while streaming
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isStreaming]);
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [messages, isStreaming, activity?.label]);
+
+  const visibleMessages = useMemo(
+    () => messages.filter(m => m.role !== 'system'),
+    [messages],
+  );
+
+  const activityLabel =
+    activity?.phase === 'tool'
+      ? activity.label
+      : activity?.phase === 'searching'
+        ? 'Searching…'
+        : activity?.phase === 'connecting' || activity?.phase === 'sending'
+          ? activity.label
+          : 'Waiting for model…';
 
   return (
     <div className="chat-container">
       <div className="chat-header">
         <h3>AI Assistant</h3>
         {isStreaming && (
-          <div className="typing-indicator">
+          <div className="typing-indicator" title="Generating">
             <span className="typing-dot" />
             <span className="typing-dot" />
             <span className="typing-dot" />
@@ -321,126 +525,93 @@ export function ChatPanel({
         )}
       </div>
 
+      <ConnectionBanner state={connectionState} onReconnect={onReconnect} />
+      <ActivityBar
+        activity={activity}
+        isStreaming={isStreaming}
+        packStatsLabel={packStatsLabel}
+      />
+
       <div className="chat-messages">
-        {messages.map((msg) => (
-          <div key={msg.id} className={`message-item ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-            {msg.role === 'assistant' && msg.thinking && (
-              <CollapsibleThinking thinkingContent={msg.thinking} />
-            )}
-            {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
-              <div className="tool-events">
-                {msg.toolEvents.map((evt, idx) => (
-                  <ToolOutput
-                    key={evt.toolCallId + '-' + idx}
-                    toolName={evt.name}
-                    status={evt.type === 'start' ? 'running' : (evt.result?.success ? 'success' : 'error')}
-                    input={evt.input}
-                    output={evt.result?.output ?? evt.result?.error}
-                    duration={evt.result?.duration}
-                  />
-                ))}
-              </div>
-            )}
-            {msg.role === 'assistant' && !msg.content && !msg.thinking && msg.isStreaming && (
-              <div className="message-bubble assistant-thinking">
-                <div className="thinking-dots">
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
-                </div>
-                <span className="thinking-label">Thinking...</span>
-              </div>
-            )}
-            {msg.content && (
-              <div className="message-bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-            )}
-            {msg.attachments && msg.attachments.length > 0 && (
-              <div className="message-attachments">
-                {msg.attachments.map((attach, idx) => {
-                  const isImg = attach.type.startsWith('image/');
-                  if (isImg) {
-                    return (
-                      <div key={idx} className="message-attachment-image-wrapper">
-                        <img src={attach.content} alt={attach.name} className="message-attachment-image" />
-                      </div>
-                    );
-                  } else {
-                    return <TextAttachmentCard key={idx} attachment={attach} />;
-                  }
-                })}
-              </div>
-            )}
-            <div className="message-info">
-              <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
-              <span>·</span>
-              <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-              {msg.content && (
-                <>
-                  <span>·</span>
-                  <MessageCopyButton content={msg.content} />
-                </>
-              )}
-              {msg.role === 'assistant' && onRetryMessage && !isStreaming && (
-                <>
-                  <span>·</span>
-                  <RetryButton onClick={() => onRetryMessage(msg.id)} />
-                </>
-              )}
-            </div>
-          </div>
+        {visibleMessages.map(msg => (
+          <MessageRow
+            key={msg.id}
+            msg={msg}
+            activityLabel={msg.isStreaming ? activityLabel : undefined}
+            showRetry={
+              msg.role === 'assistant' &&
+              !msg.ephemeral &&
+              !msg.content?.includes('Welcome to **OpenChat**') &&
+              !isStreaming &&
+              !!onRetryMessage
+            }
+            onRetry={onRetryMessage ? () => onRetryMessage(msg.id) : undefined}
+          />
         ))}
         <div ref={messagesEndRef} />
       </div>
 
       <div className="chat-input-area">
         {showSkillPicker && skills.length > 0 && (
-          <SkillPicker skills={skills} filter={skillFilter} onSelect={handleSkillSelect} onClose={() => setShowSkillPicker(false)} />
+          <SkillPicker
+            skills={skills}
+            filter={skillFilter}
+            onSelect={handleSkillSelect}
+            onClose={() => setShowSkillPicker(false)}
+          />
         )}
         <div className="chat-input-wrapper">
           {stagedAttachments.length > 0 && (
             <div className="staged-attachments-list">
-              {stagedAttachments.map((attach, idx) => {
-                const isImg = attach.type.startsWith('image/');
-                return (
-                  <div key={idx} className="staged-attachment-card">
-                    {isImg ? (
-                      <img src={attach.content} className="staged-attachment-thumbnail" alt="" />
-                    ) : (
-                      <span className="staged-attachment-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </span>
-                    )}
-                    <div className="staged-attachment-info">
-                      <span className="staged-attachment-name" title={attach.name}>{attach.name}</span>
-                      <span className="staged-attachment-size">{formatSize(attach.size)}</span>
-                    </div>
-                    <button className="staged-attachment-remove" onClick={() => handleRemoveStaged(idx)} title="Remove">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
+              {stagedAttachments.map((attach, idx) => (
+                <div key={idx} className="staged-attachment-card">
+                  {attach.type.startsWith('image/') ? (
+                    <img src={attach.content} className="staged-attachment-thumbnail" alt="" />
+                  ) : (
+                    <span className="staged-attachment-icon">📄</span>
+                  )}
+                  <div className="staged-attachment-info">
+                    <span className="staged-attachment-name" title={attach.name}>{attach.name}</span>
+                    <span className="staged-attachment-size">{formatSize(attach.size)}</span>
                   </div>
-                );
-              })}
+                  <button
+                    className="staged-attachment-remove"
+                    onClick={() => setStagedAttachments(p => p.filter((_, i) => i !== idx))}
+                    title="Remove"
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
           <textarea
             className="chat-textarea"
-            placeholder="Ask anything... (/ for skills, Enter to send, Shift+Enter for newline)"
+            placeholder="Ask anything… (/ skills · Enter send · Shift+Enter newline)"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
+            disabled={isStreaming}
             id="chat-input-textarea"
           />
           <div className="chat-input-footer">
             <div className="chat-input-actions">
-              <input type="file" ref={fileInputRef} style={{ display: 'none' }} multiple onChange={handleFileChange} />
-              <button className="btn-icon-attach" onClick={() => fileInputRef.current?.click()} disabled={isStreaming} title="Attach files" type="button">
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                multiple
+                onChange={handleFileChange}
+              />
+              <button
+                className="btn-icon-attach"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming}
+                title="Attach files"
+                type="button"
+              >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
@@ -449,44 +620,73 @@ export function ChatPanel({
                 className={`btn-web-search ${webSearchEnabled ? 'active' : ''}`}
                 onClick={() => onToggleWebSearch(!webSearchEnabled)}
                 disabled={isStreaming}
-                title={hasSearchKey ? (webSearchEnabled ? 'Disable Web Search' : 'Enable Web Search') : 'Web Search (needs API key in Settings)'}
+                title={
+                  hasSearchKey
+                    ? webSearchEnabled
+                      ? 'Disable web search'
+                      : 'Enable web search'
+                    : 'Web search needs API key in Settings'
+                }
                 type="button"
                 id="btn-web-search-toggle"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <circle cx="12" cy="12" r="10" />
                   <line x1="2" y1="12" x2="22" y2="12" />
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
               </button>
               <button
+                className={`btn-thinking-toggle ${enableThinking ? 'active' : ''}`}
+                onClick={() => onToggleThinking(!enableThinking)}
+                disabled={isStreaming}
+                title={
+                  enableThinking
+                    ? 'Deep thinking ON — click to disable (faster, shorter answers)'
+                    : 'Deep thinking OFF — click to enable reasoning / CoT'
+                }
+                type="button"
+                id="btn-thinking-toggle"
+                aria-pressed={enableThinking}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" />
+                  <path d="M9 21h6" />
+                  <path d="M10 17v4" />
+                  <path d="M14 17v4" />
+                </svg>
+              </button>
+              <button
                 className="btn-ghost"
                 onClick={() => setShowContext(true)}
                 disabled={isStreaming}
-                title="View context sent to server"
+                title="Preview conversation payload"
                 type="button"
-                id="btn-view-context"
                 style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
               </button>
             </div>
             {isStreaming ? (
-              <button className="btn-primary" onClick={onStopStreaming} style={{ background: 'var(--color-error)' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
+              <button
+                className="btn-primary"
+                onClick={onStopStreaming}
+                style={{ background: 'var(--color-error)' }}
+                type="button"
+              >
                 <span>Stop</span>
               </button>
             ) : (
-              <button className="btn-primary" onClick={handleSend} disabled={inputText.trim().length === 0 && stagedAttachments.length === 0} id="chat-send-btn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
+              <button
+                className="btn-primary"
+                onClick={handleSend}
+                disabled={inputText.trim().length === 0 && stagedAttachments.length === 0}
+                id="chat-send-btn"
+                type="button"
+              >
                 <span>Send</span>
               </button>
             )}
@@ -494,30 +694,44 @@ export function ChatPanel({
         </div>
       </div>
 
-      {/* Context Viewer Modal */}
       {showContext && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setShowContext(false)}>
-          <div style={{
-            background: 'var(--bg-surface)', borderRadius: '12px', padding: '20px',
-            maxWidth: '800px', width: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Context Sent to Server</h3>
-              <button className="btn-ghost" onClick={() => setShowContext(false)} style={{ fontSize: '1.2rem', padding: '4px 8px' }}>✕</button>
+        <div className="modal-overlay" onClick={() => setShowContext(false)}>
+          <div className="modal-content" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Conversation preview</h2>
+              <button className="btn-icon" onClick={() => setShowContext(false)} type="button">✕</button>
             </div>
-            <pre style={{
-              flex: 1, overflow: 'auto', fontSize: '12px', fontFamily: 'var(--font-mono)',
-              background: 'var(--bg-surface-elevated)', padding: '12px', borderRadius: '8px',
-              whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5,
-            }}>
-              {JSON.stringify(messages.map(m => ({
-                role: m.role,
-                content: m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content,
-              })), null, 2)}
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px' }}>
+              What the client will send (welcome / empty shells omitted). Server may pack further.
+            </p>
+            <pre
+              style={{
+                margin: 16,
+                padding: 12,
+                maxHeight: '55vh',
+                overflow: 'auto',
+                fontSize: 12,
+                fontFamily: 'var(--font-mono)',
+                background: 'var(--bg-surface-elevated)',
+                borderRadius: 8,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {JSON.stringify(
+                messages
+                  .filter(m => !m.ephemeral && !m.content?.includes('Welcome to **OpenChat**'))
+                  .filter(m => !(m.isStreaming && !m.content && !m.toolEvents?.length))
+                  .map(m => ({
+                    role: m.role,
+                    content:
+                      typeof m.content === 'string' && m.content.length > 400
+                        ? m.content.slice(0, 400) + '…'
+                        : m.content,
+                    tools: m.toolEvents?.map(t => t.name),
+                  })),
+                null,
+                2,
+              )}
             </pre>
           </div>
         </div>

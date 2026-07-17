@@ -24,6 +24,8 @@ export interface AgentLoopParams {
   modelId?: string;
   signal?: AbortSignal;
   onEvent: (event: ServerMessage) => void;
+  /** false = disable deep thinking for this run */
+  enableThinking?: boolean;
 }
 
 /** Token limit threshold — compress when usage exceeds this percentage */
@@ -64,7 +66,7 @@ export class AgentLoop {
    * Max 10 rounds to prevent infinite loops.
    */
   async run(params: AgentLoopParams): Promise<void> {
-    const { messages, modelId, signal, onEvent } = params;
+    const { messages, modelId, signal, onEvent, enableThinking } = params;
 
     const model = this.providers.getActiveModel(modelId);
     if (!model) {
@@ -285,12 +287,13 @@ export class AgentLoop {
           messages: llmMessagesPacked as any,
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           signal,
+          enableThinking,
         })) {
           if (chunk.type === 'content' && chunk.content) {
             responseContent += chunk.content;
             onEvent({ type: 'content', text: chunk.content });
           }
-          if (chunk.type === 'thinking' && chunk.content) {
+          if (chunk.type === 'thinking' && chunk.content && enableThinking !== false) {
             onEvent({ type: 'thinking', text: chunk.content });
           }
           if (chunk.type === 'tool_call' && chunk.toolCalls) {

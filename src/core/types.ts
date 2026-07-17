@@ -67,6 +67,27 @@ export interface ChatAttachment {
   content: string; // base64 data URL for images/binaries, raw text for code/text files
 }
 
+/** Live phase while waiting for / streaming a reply */
+export type ChatActivityPhase =
+  | 'idle'
+  | 'connecting'
+  | 'searching'
+  | 'sending'
+  | 'thinking'
+  | 'tool'
+  | 'streaming'
+  | 'error';
+
+export interface ChatActivity {
+  phase: ChatActivityPhase;
+  /** Short human-readable label */
+  label: string;
+  /** Optional detail (tool name, etc.) */
+  detail?: string;
+  /** Epoch ms when this phase started */
+  startedAt: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -75,6 +96,8 @@ export interface ChatMessage {
   timestamp: number;
   modelId?: string;
   isStreaming?: boolean;
+  /** Hide from default bubble list (welcome, internal) */
+  ephemeral?: boolean;
   attachments?: ChatAttachment[];
   toolEvents?: ToolEvent[];
 }

@@ -196,9 +196,9 @@ describe('ChatPanel Component Attachments Integration', () => {
       />
     );
 
-    const copyBtn = screen.getByTitle('Copy message content');
+    const copyBtn = screen.getByTitle('Copy');
     expect(copyBtn).toBeInTheDocument();
-    expect(copyBtn.textContent).toBe('Copy');
+    expect(copyBtn.textContent).toContain('Copy');
 
     fireEvent.click(copyBtn);
     expect(writeTextMock).toHaveBeenCalledWith('Hello, this is a test message to copy.');

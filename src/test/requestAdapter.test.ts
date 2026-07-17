@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildCompletionRequest, adaptMessagesForModel } from '../../server/src/providers/requestAdapter.js';
+import {
+  buildCompletionRequest,
+  adaptMessagesForModel,
+  applyThinkingPreference,
+} from '../../server/src/providers/requestAdapter.js';
 import type { ModelConfig } from '../../server/src/providers/modelTypes.js';
 
 const openaiModel: ModelConfig = {
@@ -78,5 +82,40 @@ describe('adaptMessagesForModel', () => {
     expect(messages[0].role).toBe('user');
     expect(messages[0].content).toContain('SYS');
     expect(messages[0].content).toContain('HELLO');
+  });
+});
+
+describe('applyThinkingPreference', () => {
+  it('disables thinking for deepseek', () => {
+    const body: Record<string, any> = { model: 'deepseek-chat' };
+    applyThinkingPreference(
+      body,
+      { ...openaiModel, model: 'deepseek-chat', endpoint: 'https://api.deepseek.com/v1' },
+      false,
+      'openai',
+    );
+    expect(body.thinking).toEqual({ type: 'disabled' });
+  });
+
+  it('disables thinking for qwen via enable_thinking', () => {
+    const body: Record<string, any> = {};
+    applyThinkingPreference(
+      body,
+      { ...openaiModel, model: 'qwen-plus', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      false,
+      'openai',
+    );
+    expect(body.enable_thinking).toBe(false);
+  });
+
+  it('sets low reasoning_effort for o-series when disabled', () => {
+    const body: Record<string, any> = {};
+    applyThinkingPreference(
+      body,
+      { ...openaiModel, model: 'o3-mini' },
+      false,
+      'openai',
+    );
+    expect(body.reasoning_effort).toBe('low');
   });
 });

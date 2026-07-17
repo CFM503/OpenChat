@@ -4,21 +4,53 @@ import net from 'net';
 import fs from 'fs';
 import path from 'path';
 
+const FRONTEND_PORT = parseInt(process.env.OPENCHAT_FRONTEND_PORT || '3000', 10);
+const BACKEND_PORT = parseInt(process.env.OPENCHAT_PORT || '3001', 10);
+
 function checkPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
-    server.once('error', (err: any) => {
+    server.unref();
+    server.once('error', (err: NodeJS.ErrnoException) => {
       resolve(err.code === 'EADDRINUSE');
     });
     server.once('listening', () => {
-      server.close();
-      resolve(false);
+      server.close(() => resolve(false));
     });
-    server.listen(port);
+    server.listen(port, '0.0.0.0');
   });
 }
 
-// A simple plugin to read/write local configuration file (.openchat) Client-side
+function killHints(port: number): string[] {
+  if (process.platform === 'win32') {
+    return [
+      `   Windows: netstat -ano | findstr :${port}`,
+      `            taskkill /F /PID <PID>`,
+    ];
+  }
+  return [
+    `   Unix:    lsof -i :${port}`,
+    `            kill -9 <PID>`,
+  ];
+}
+
+function printPortError(title: string, ports: number[]) {
+  console.error('\n' + '='.repeat(62));
+  console.error(title);
+  console.error('');
+  for (const p of ports) {
+    console.error(`   Port ${p} is busy.`);
+    for (const line of killHints(p)) console.error(line);
+    console.error('');
+  }
+  console.error('   Or override ports:');
+  console.error('     set OPENCHAT_FRONTEND_PORT=3100');
+  console.error('     set OPENCHAT_PORT=3101');
+  console.error('     npm run dev:all');
+  console.error('='.repeat(62) + '\n');
+}
+
+// Local .openchat fallback when backend is not running
 function localConfigPlugin() {
   const configPath = path.resolve(__dirname, '.openchat');
 
@@ -27,8 +59,7 @@ function localConfigPlugin() {
       if (req.method === 'GET') {
         res.setHeader('Content-Type', 'application/json');
         if (fs.existsSync(configPath)) {
-          const data = fs.readFileSync(configPath, 'utf-8');
-          res.end(data);
+          res.end(fs.readFileSync(configPath, 'utf-8'));
         } else {
           res.end(JSON.stringify({}));
         }
@@ -42,7 +73,6 @@ function localConfigPlugin() {
         });
         req.on('end', () => {
           try {
-            // Verify it is valid JSON
             JSON.parse(body);
             fs.writeFileSync(configPath, body, 'utf-8');
             res.setHeader('Content-Type', 'application/json');
@@ -66,59 +96,62 @@ function localConfigPlugin() {
     },
     configurePreviewServer(server: any) {
       server.middlewares.use(handler);
-    }
+    },
   };
 }
 
 export default defineConfig(async () => {
-  // Check if default ports are occupied before starting
-  const defaultPort = 3000;
-  const backendPort = 3001;
+  // Skip port checks during vitest (OPENCHAT_SKIP_PORT_CHECK or VITEST)
+  const skipCheck =
+    process.env.OPENCHAT_SKIP_PORT_CHECK === '1' ||
+    process.env.VITEST === 'true' ||
+    process.argv.some(a => a.includes('vitest'));
 
-  const port3000Occupied = await checkPortInUse(defaultPort);
-  const port3001Occupied = await checkPortInUse(backendPort);
+  if (!skipCheck) {
+    const frontendBusy = await checkPortInUse(FRONTEND_PORT);
+    const backendBusy = await checkPortInUse(BACKEND_PORT);
 
-  if (port3000Occupied && port3001Occupied) {
-    console.error('\n' + '='.repeat(60));
-    console.error(`❌ Both ports 3000 (frontend) and 3001 (backend) are in use.`);
-    console.error(`   Stop the conflicting processes before running dev:all.`);
-    console.error('='.repeat(60) + '\n');
-    process.exit(1);
-  }
-  if (port3000Occupied) {
-    console.error('\n' + '='.repeat(60));
-    console.error(`❌ Port 3000 (frontend) is in use. Cannot start Vite.`);
-    console.error(`   Windows: netstat -ano | findstr :3000`);
-    console.error(`            taskkill /F /PID <PID>`);
-    console.error('='.repeat(60) + '\n');
-    process.exit(1);
-  }
-  if (port3001Occupied) {
-    console.warn(`⚠️  Backend port 3001 is in use. API/WebSocket calls may fail.`);
+    if (frontendBusy) {
+      printPortError(
+        `❌ Frontend port ${FRONTEND_PORT} is in use. Cannot start Vite.`,
+        [FRONTEND_PORT],
+      );
+      process.exit(1);
+    }
+
+    if (backendBusy) {
+      // Soft warning: vite alone is ok, but proxy/API will fail until backend frees the port
+      console.warn('\n' + '-'.repeat(62));
+      console.warn(`⚠️  Backend port ${BACKEND_PORT} is in use.`);
+      console.warn(`   Frontend will start, but /api and /ws may fail until backend is free.`);
+      for (const line of killHints(BACKEND_PORT)) console.warn(line);
+      console.warn('-'.repeat(62) + '\n');
+    } else {
+      console.log(`✓ Frontend port ${FRONTEND_PORT} free · backend expected on ${BACKEND_PORT}`);
+    }
   }
 
   return {
     plugins: [react(), localConfigPlugin()],
     server: {
-      port: defaultPort,
+      port: FRONTEND_PORT,
       strictPort: true,
       open: false,
-      host: '0.0.0.0',  // Bind to all interfaces (IPv4 + IPv6)
+      host: '0.0.0.0',
       onListening(server) {
         const addr = server.address();
         if (addr && typeof addr === 'object') {
           console.log(`   ➜  Frontend: http://localhost:${addr.port}/`);
-          console.log(`   ➜  Backend:  http://localhost:${backendPort}/`);
+          console.log(`   ➜  Backend:  http://localhost:${BACKEND_PORT}/`);
         }
       },
       proxy: {
-        // Proxy /api and /ws to backend when it's running
         '/api': {
-          target: 'http://localhost:3001',
+          target: `http://localhost:${BACKEND_PORT}`,
           changeOrigin: true,
         },
         '/ws': {
-          target: 'ws://localhost:3001',
+          target: `ws://localhost:${BACKEND_PORT}`,
           ws: true,
         },
       },
