@@ -15,6 +15,15 @@ import type { PluginManager } from '../plugins/loader.js';
 
 const INSTALLED_FILE = 'installed.json';
 
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class RegistryInstaller {
   private client: RegistryClient;
   private skillsDir: string;
@@ -84,22 +93,29 @@ export class RegistryInstaller {
       // Clean up tarball
       await fs.unlink(tarballPath).catch(() => {});
 
-      // Verify the package has required files
+      // Verify package layout (Claude Code or legacy OpenChat)
       if (pkg.type === 'plugin') {
-        const manifestPath = path.join(tempDir, 'manifest.json');
-        try {
-          await fs.access(manifestPath);
-        } catch {
+        const hasLegacy = await pathExists(path.join(tempDir, 'manifest.json'));
+        const hasClaude = await pathExists(path.join(tempDir, '.claude-plugin', 'plugin.json'));
+        const hasSkills = await pathExists(path.join(tempDir, 'skills'));
+        const hasRootSkill = await pathExists(path.join(tempDir, 'SKILL.md'));
+        if (!hasLegacy && !hasClaude && !hasSkills && !hasRootSkill) {
           await fs.rm(tempDir, { recursive: true, force: true });
-          return { success: false, name: pkgName, error: 'Invalid plugin: missing manifest.json' };
+          return {
+            success: false,
+            name: pkgName,
+            error: 'Invalid plugin: need manifest.json, .claude-plugin/plugin.json, skills/, or SKILL.md',
+          };
         }
       } else {
-        // Skill: look for .md files
-        const entries = await fs.readdir(tempDir);
-        const mdFiles = entries.filter(e => e.endsWith('.md'));
-        if (mdFiles.length === 0) {
+        // Skill: SKILL.md directory layout or flat .md
+        const entries = await fs.readdir(tempDir, { withFileTypes: true });
+        const hasSkillMd = await pathExists(path.join(tempDir, 'SKILL.md'));
+        const hasNested = entries.some(e => e.isDirectory());
+        const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith('.md'));
+        if (!hasSkillMd && mdFiles.length === 0 && !hasNested) {
           await fs.rm(tempDir, { recursive: true, force: true });
-          return { success: false, name: pkgName, error: 'Invalid skill: no .md files found' };
+          return { success: false, name: pkgName, error: 'Invalid skill: no SKILL.md or .md files found' };
         }
       }
 

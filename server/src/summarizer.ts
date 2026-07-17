@@ -1,9 +1,12 @@
 // ============================================================================
-// Context Summarizer — Recursive compression via LLM instead of truncating
+// Context Summarizer — LLM compression when packer signals over-budget
 // ============================================================================
 
 import { ProviderGateway } from './providerGateway.js';
-import type { ModelConfig } from './configManager.js';
+import type { ModelConfig } from './providers/modelTypes.js';
+import { resolveModelCaps } from './providers/resolveCaps.js';
+import { buildCompletionRequest } from './providers/requestAdapter.js';
+import { estimateTokens } from './context/tokenBudget.js';
 
 interface SummarizeRequest {
   messages: Array<{ role: string; content: string | any[] }>;
@@ -15,65 +18,65 @@ interface SummarizeResult {
   recentMessages: Array<{ role: string; content: string }>;
 }
 
-const SUMMARY_PROMPT = `You are a conversation summarizer. Compress the conversation below into a structured summary.
+const SUMMARY_PROMPT = `Compress the conversation into a dense summary for an AI coding agent.
 
-Rules:
-- Preserve all factual information, decisions, and key details
-- Keep the conversation flow clear (who said what)
-- Include any code snippets, file paths, or important data
-- Group related topics together
-- Be concise but thorough`;
+Keep: decisions, file paths, commands run, errors, TODOs, user constraints.
+Drop: chit-chat, repeated tool dumps, full file contents (keep paths + intent).
+Max ~400 words. Use bullet points.`;
 
-const MAX_TOKENS = 128_000;
-
-/** Estimate token count from message content length (rough heuristic). */
 function estimateTokenCount(messages: any[]): number {
-  return Math.ceil(messages.reduce((sum, m) => {
+  return messages.reduce((sum, m) => {
     const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-    return sum + content.length / 4;
-  }, 0));
+    return sum + estimateTokens(content);
+  }, 0);
 }
 
-/**
- * Recursively compress messages that exceed the token limit.
- * Keeps the summary prefix (from prior compression rounds) + recent messages.
- */
 async function compress(
   gateway: ProviderGateway,
   model: ModelConfig,
   req: SummarizeRequest,
 ): Promise<SummarizeResult> {
+  const caps = resolveModelCaps(model);
+  const budget = Math.floor(caps.historyTokenBudget * 0.85);
   const tokenCount = estimateTokenCount(req.messages);
-  if (tokenCount <= MAX_TOKENS) {
-    // Fits within limit — keep all messages as recent context
+
+  if (tokenCount <= budget) {
     return {
       summary: req.summaryPrefix ?? '',
       recentMessages: req.messages.map(m => ({
         role: m.role,
-        content: typeof m.content === 'string' ? m.content : '',
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
       })),
     };
   }
 
-  // Split: compress older half, keep recent half
-  const mid = Math.ceil(req.messages.length / 2);
-  const oldHalf = req.messages.slice(0, mid);
-  const recentHalf = req.messages.slice(mid);
+  // Keep last ~40% as recent, summarize the rest
+  const keepCount = Math.max(4, Math.ceil(req.messages.length * 0.4));
+  const cut = Math.max(0, req.messages.length - keepCount);
+  const oldHalf = req.messages.slice(0, cut);
+  const recentHalf = req.messages.slice(cut);
+
+  if (oldHalf.length === 0) {
+    return {
+      summary: req.summaryPrefix ?? '',
+      recentMessages: recentHalf.map(m => ({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      })),
+    };
+  }
 
   const result = await summarize(gateway, model, oldHalf, req.summaryPrefix);
 
-  // Recurse: combine summary + recentHalf + newHalf, check if still too big
-  const combined: SummarizeRequest = {
-    messages: [
-      ...(result.summary ? [{ role: 'system', content: result.summary }] : []),
-      ...recentHalf,
-    ],
+  return {
+    summary: result.summary,
+    recentMessages: recentHalf.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    })),
   };
-
-  return compress(gateway, model, combined);
 }
 
-/** Call the LLM to summarize a set of messages. */
 async function summarize(
   gateway: ProviderGateway,
   model: ModelConfig,
@@ -85,29 +88,43 @@ async function summarize(
     content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
   }));
 
+  // Truncate history text itself if huge
+  let historyJson = JSON.stringify(history);
+  if (historyJson.length > 24_000) {
+    historyJson = historyJson.slice(0, 24_000) + '…[truncated for summarizer]';
+  }
+
   const systemContent = summaryPrefix
-    ? `${SUMMARY_PROMPT}\n\nPrevious summary (append to this):\n${summaryPrefix}`
+    ? `${SUMMARY_PROMPT}\n\nPrevious summary (merge/extend):\n${summaryPrefix}`
     : SUMMARY_PROMPT;
 
-  const body: Record<string, any> = {
-    model: model.model,
-    messages: [
-      { role: 'system', content: systemContent },
-      { role: 'user', content: JSON.stringify(history) },
-    ],
-    temperature: 0.3,
-    max_tokens: 4000,
-    stream: false,
-  };
+  // Non-streaming one-shot via adapter
+  const built = buildCompletionRequest(
+    {
+      ...model,
+      // Force cheap summarizer settings
+      temperature: 0.2,
+      maxTokens: Math.min(model.maxTokens || 2048, 2048),
+      supportsTemperature: true,
+      reasoningMode: 'none',
+      disableTools: true,
+    },
+    {
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: historyJson },
+      ],
+      stream: false,
+    },
+  );
 
-  const url = normalizeEndpoint(model.endpoint);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+  // Override stream false in body
+  built.body.stream = false;
 
-  const resp = await fetch(url, {
+  const resp = await fetch(built.url, {
     method: 'POST',
-    headers,
-    body: JSON.stringify(body),
+    headers: built.headers,
+    body: JSON.stringify(built.body),
   });
 
   if (!resp.ok) {
@@ -115,22 +132,26 @@ async function summarize(
     throw new Error(`Summarization failed (${resp.status}): ${text.substring(0, 500)}`);
   }
 
-  const data = await resp.json();
-  return { summary: data.choices?.[0]?.message?.content ?? '' };
+  const data = await resp.json() as any;
+
+  // OpenAI shape
+  let summary = data.choices?.[0]?.message?.content ?? '';
+  // Anthropic shape
+  if (!summary && Array.isArray(data.content)) {
+    summary = data.content.map((c: any) => c.text || '').join('');
+  }
+  // Ollama non-stream
+  if (!summary && data.message?.content) {
+    summary = data.message.content;
+  }
+
+  return { summary: summary || '' };
 }
 
-/** Public API: compress messages if they exceed the token limit. */
 export async function compressConversation(
   gateway: ProviderGateway,
   model: ModelConfig,
   messages: Array<{ role: string; content: string | any[] }>,
 ): Promise<{ summary: string; recentMessages: Array<{ role: string; content: string }> }> {
   return compress(gateway, model, { messages });
-}
-
-function normalizeEndpoint(url: string): string {
-  let normalized = url.trim().replace(/\/+$/, '');
-  if (normalized.endsWith('/chat/completions')) return normalized;
-  if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
-  return normalized + '/v1/chat/completions';
 }

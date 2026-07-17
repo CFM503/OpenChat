@@ -1,8 +1,11 @@
 {
   "name": "openchat",
   "private": true,
-  "version": "2.0.0-alpha.17",
+  "version": "2.1.0",
   "type": "module",
+  "bin": {
+    "openchat": "./bin/openchat.mjs"
+  },
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx server/src/index.ts",
@@ -10,7 +13,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:run": "vitest --run"
+    "test:run": "vitest --run",
+    "openchat": "node bin/openchat.mjs",
+    "serve": "node bin/openchat.mjs serve"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

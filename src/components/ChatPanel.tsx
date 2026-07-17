@@ -239,11 +239,23 @@ export function ChatPanel({
 
   const handleSkillSelect = async (skill: SkillInfo) => {
     setShowSkillPicker(false);
-    const expanded = await backendClient.expandSkill(skill.name);
+    // Capture trailing args after /skill-name
+    const typed = inputText.trim();
+    const shortcut = skill.shortcut.replace(/^\//, '');
+    let args = '';
+    if (typed.startsWith('/')) {
+      const rest = typed.slice(1);
+      if (rest === shortcut || rest.startsWith(shortcut + ' ')) {
+        args = rest.slice(shortcut.length).trim();
+      } else if (rest.startsWith(skill.name + ' ') || rest === skill.name) {
+        args = rest.slice(skill.name.length).trim();
+      }
+    }
+    const expanded = await backendClient.expandSkill(skill.name, undefined, args);
     if (expanded) {
       setInputText(expanded);
     } else {
-      setInputText(skill.content || skill.shortcut + ' ');
+      setInputText(skill.content || skill.shortcut + (args ? ' ' + args : ' '));
     }
   };
 

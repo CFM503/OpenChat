@@ -5,9 +5,50 @@
 
 ---
 
-## 1. 总体架构建议
+## Current architecture (v2.0.0-alpha.21)
 
-### 1.1 当前状态（v1.0.6）
+```
+┌────────────────────────────── Browser SPA ──────────────────────────────┐
+│  App.tsx (shell)                                                         │
+│    hooks/  useChat · useConfig · useSessions · useWorkspace · useTasks   │
+│    components/  ChatPanel · Workspace · Settings · Extensions            │
+│    services/api.ts  →  /api/*  +  /ws  (Vite proxy → :3001)              │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │ HTTP + WebSocket
+┌──────────────────────────────────▼───────────────────────────────────────┐
+│  server/src/index.ts (thin entry)                                         │
+│    runtime.ts     composition root (config, tools, skills, plugins, MCP) │
+│    routes/        REST: config, sessions, fs, skills, plugins, registry  │
+│    ws/handler     chat / abort / pack_stats                              │
+│    agentLoop      tool loop + token packer + optional cheap summarizer   │
+│    providers/     multi-vendor request adapter + capability inference    │
+│    context/       tokenBudget pack algorithm                             │
+│    skills/ plugins/ mcp/ tools/                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### Token cost control
+1. Per-model **context strategy**: minimal | balanced | full  
+2. **Packer** keeps system + last user + newest turns under budget; truncates tools  
+3. **agentRouting.cheapModelId** for LLM summary when still over threshold  
+4. UI shows **~N tok** from `pack_stats` events  
+
+### Multi-provider
+`resolveCaps` + `requestAdapter` handle OpenAI / Anthropic Messages / Ollama, CN vendors, reasoning models (`max_completion_tokens`, no temperature), system-role folding, auth styles.
+
+### Version
+- **Current:** 2.1.0 (2026-07-17)
+- Tags follow `vMAJOR.MINOR.PATCH` (and historical `v2.0.0-alpha.N`)
+
+### Future work (see README Roadmap)
+Task-based multi-model routing · React Context store · plugin hooks runtime · skill hot-reload · E2E tests · optional keychain.  
+**Not planned:** VS Code extension (Claude Code–style skills/plugins instead).
+
+---
+
+## 1. 总体架构建议（historical）
+
+### 1.1 历史状态（v1.0.6）
 
 ```
 ┌─────────────────────────────────────────────────┐

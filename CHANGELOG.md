@@ -2,6 +2,111 @@
 
 All notable changes to the **OpenChat** project will be documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+---
+
+## [2.1.0] - 2026-07-17
+
+Minor release consolidating the agent platform work from the 2.0.0-alpha.18–21 line.
+
+### Added
+- **Claude Code–compatible skills & plugins** (`SKILL.md`, plugin layout, `skill` tool, project memory via `OPENCHAT.md` / `CLAUDE.md`)
+- **Web tools**: `web_search`, `web_fetch`
+- **Filesystem workspace**: project file tree, open/edit/save to disk
+- **Task Board → real agent execution**
+- **Multi-provider dialects** (CN + global) with advanced model params
+- **Token-budget context packer** (`minimal` / `balanced` / `full`) + optional cheap-model summarization
+- **CLI** (`bin/openchat.mjs`): serve, chat, health, tools, skills, plugins, reload
+- **Docker** (`Dockerfile`, `docker-compose.yml`)
+- **Panel resize**, session auto-title, chat export, pack_stats (`~N tok` in header)
+- **Settings → Routing**: `agentRouting.cheapModelId` for summarizer
+
+### Changed
+- **Architecture**: server `runtime` + `routes` + `ws`; frontend hooks; thin `App.tsx` / `index.ts`
+- API prefers same-origin `/api` and `/ws` (Vite proxy)
+
+### Fixed
+- Gemini / multi-version endpoint normalization
+- MCP server restart; config secret merge on round-trip
+
+### Documentation
+- Roadmap for future work lives in [README → Roadmap](README.md#roadmap) and [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---
+
+## [2.0.0-alpha.21] - 2026-07-17
+
+### Architecture refactor
+- **Server composition root**: `runtime.ts` (DI), `routes/index.ts` (HTTP), `ws/handler.ts` (WebSocket); `index.ts` is a thin entry
+- **Frontend hooks**: `useConfig`, `useBackend`, `useChat`, `useSessions`, `useWorkspace`, `useTasks`, `usePanelLayout` — `App.tsx` is shell-only (~350 lines)
+- **API base**: prefer same-origin `/api` + `/ws` (Vite proxy) with localhost:3001 fallback
+- **Agent routing UI**: Settings → Routing → cheap model for summarization (`agentRouting.cheapModelId`)
+- **Live pack stats**: WebSocket `pack_stats` event; header shows `~N tok` after each agent turn
+
+---
+
+## [2.0.0-alpha.20] - 2026-07-17
+
+### Added — Multi-provider dialects + token-budget packing
+- **Provider profiles** (CN + global): DeepSeek, Qwen/DashScope, Kimi/Moonshot, GLM, Doubao, SiliconFlow, MiniMax, Baichuan, Yi, StepFun, MiMo, OpenAI, Gemini, Claude, Groq, Mistral, OpenRouter, LM Studio, Ollama
+- **Request adapter** (`server/src/providers/`):
+  - `max_tokens` vs `max_completion_tokens` (o1/o3)
+  - Anthropic Messages API + `x-api-key`
+  - Ollama NDJSON
+  - Optional: no temperature (reasoning), fold system into user, strict alternation, extra headers/body
+- **Per-model params in UI**: context strategy, context window, token param, API style, auth style, reasoning mode, top_p, tool result cap, skill catalog mode
+- **Token-budget packer** (`server/src/context/tokenBudget.ts`):
+  - Strategies: `minimal` | `balanced` | `full`
+  - Priority keep: system core + last user → newest turns → drop older with stub
+  - Truncate tool outputs; skill catalog name-only by default
+  - Optional LLM summary when still over compression threshold
+
+### Changed
+- Agent loop re-packs each tool round; logs pack stats (`est≈N tokens`)
+- Summarizer uses adapter + smaller max_tokens for cheap compression
+
+---
+
+## [2.0.0-alpha.19] - 2026-07-17
+
+### Added — Claude Code compatible Skills & Plugins
+- **SKILL.md format**: Directory skills at `~/.claude/skills/<name>/SKILL.md`, `~/.openchat/skills/<name>/SKILL.md`, project `.claude/skills/`, `.openchat/skills/`
+- **Frontmatter**: `description`, `when_to_use`, `disable-model-invocation`, `user-invocable`, `argument-hint`, `allowed-tools`, `$ARGUMENTS` / `$0` / `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PROJECT_DIR}`
+- **Dynamic shell injection**: `` !`command` `` and ` ```! ` blocks expanded before skill content is used
+- **Legacy commands**: `.claude/commands/*.md` loaded as skills
+- **`skill` tool**: Agent can load skills by name (auto-catalog in system prompt)
+- **Claude plugins**: `.claude-plugin/plugin.json` + `skills/` + `commands/` + `agents/` + optional `.mcp.json`
+- **Project memory**: `OPENCHAT.md` / `CLAUDE.md` / `AGENTS.md` / `.claude/rules/*.md` injected every agent turn
+- **Reload APIs**: `POST /api/skills/reload`, `POST /api/plugins/reload`
+- **CLI**: `openchat skills|plugins|reload`
+- **Examples**: `examples/skills/summarize-changes`, `examples/plugins/team-conventions/`
+
+### Changed
+- Built-in skills renamed to Claude-style short names (`/review`, `/commit`, …)
+- Plugin API returns `format`, `skills[]`, `agents[]` (still lists legacy JS tools)
+
+---
+
+## [2.0.0-alpha.18] - 2026-07-17
+
+### Added
+- **WebSearchTool + WebFetchTool**: Agent can search the web and fetch page text via tools (uses Search settings: Tavily / SerpAPI / Bing / SearXNG). Private/localhost URLs blocked on fetch.
+- **Filesystem Workspace Browser**: Left file tree in Code Canvas loads real project files via `GET /api/fs/tree`; open, edit, save (`Ctrl+S` / Save button), close tabs with dirty indicator.
+- **Task Board → Real Agent Execution**: **Run Agent** starts the agent loop with the task description; tool events stream into task logs; completes/fails automatically.
+- **MCP Server Restart**: `POST /api/mcp/servers/:name/restart` + Restart button in Extensions panel.
+- **Panel Resize**: Drag the center divider to resize chat vs workspace (persisted).
+- **Session Auto-Title**: First user message becomes session title; `PATCH /api/sessions/:id` for rename.
+- **Export Chat**: Download conversation as Markdown (`Ctrl+E` / Export button).
+- **CLI** (`bin/openchat.mjs`): `openchat serve|chat|health|tools|sessions`.
+- **Docker**: `Dockerfile` + `docker-compose.yml` for self-hosting.
+- **Keyboard Shortcuts**: `Ctrl+,` settings · `Ctrl+N` new chat · `Ctrl+B` sidebar · `Ctrl+E` export · `Esc` stop.
+- **Config secret merge**: Empty/masked API keys no longer wipe stored credentials on save.
+
+### Fixed
+- **normalizeEndpoint**: Gemini `/v1beta` and `/v1beta/openai` URLs no longer get a spurious `/v1/` segment (frontend + summarizer aligned with provider gateway).
+
 ---
 
 ## [2.0.0-alpha.12] - 2026-06-28

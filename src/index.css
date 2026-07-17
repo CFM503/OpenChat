@@ -1997,3 +1997,175 @@ pre:hover .code-copy-btn {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* ============================================================================
+   File Tree + Editor enhancements
+   ============================================================================ */
+
+.editor-with-tree {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.file-tree-aside {
+  width: 220px;
+  min-width: 160px;
+  max-width: 280px;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.file-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+}
+
+.file-tree-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.file-tree-status {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.file-tree-status.error {
+  color: var(--color-error);
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0;
+}
+
+.file-tree-item:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.file-tree-item.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--text-primary);
+}
+
+.file-tree-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.file-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-with-tree .editor-container {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 160px;
+}
+
+.file-tab-label {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tab-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
+.file-tab-close:hover {
+  opacity: 1;
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.editor-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-right: 8px;
+}
+
+.editor-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  padding: 24px;
+  text-align: center;
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.panel-divider:active,
+.panel-divider.dragging {
+  background-color: rgba(99, 102, 241, 0.25);
+}

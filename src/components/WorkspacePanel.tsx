@@ -1,11 +1,12 @@
 // ============================================================================
 // WorkspacePanel Component
-// Wraps the multi-tab right workspace panel, file editor, and Task Board
+// File tree + code editor + Task Board
 // ============================================================================
 
 import React, { useState } from 'react';
 import type { AgentTask, TaskAction, WorkspaceFile } from '../core/types';
 import { TaskBoard } from './TaskBoard';
+import { FileTree } from './FileTree';
 
 interface WorkspacePanelProps {
   activeTab: 'code' | 'tasks';
@@ -16,6 +17,9 @@ interface WorkspacePanelProps {
   workspaceFiles: WorkspaceFile[];
   onFileChange: (id: string, content: string) => void;
   onAddFile: (name: string, language: string) => void;
+  onCloseFile: (id: string) => void;
+  onSaveFile: (id: string) => void;
+  onOpenDiskFile: (path: string) => void;
   activeFileId: string | null;
   onSelectFile: (id: string) => void;
 }
@@ -29,14 +33,19 @@ export function WorkspacePanel({
   workspaceFiles,
   onFileChange,
   onAddFile,
+  onCloseFile,
+  onSaveFile,
+  onOpenDiskFile,
   activeFileId,
   onSelectFile,
 }: WorkspacePanelProps) {
   const [showAddFile, setShowAddFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [newFileLang, setNewFileLang] = useState('typescript');
+  const [showTree, setShowTree] = useState(true);
 
   const activeFile = workspaceFiles.find(f => f.id === activeFileId);
+  const activePath = activeFile?.filePath ?? null;
 
   const handleAddFileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +53,13 @@ export function WorkspacePanel({
     onAddFile(newFileName.trim(), newFileLang);
     setNewFileName('');
     setShowAddFile(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      if (activeFileId) onSaveFile(activeFileId);
+    }
   };
 
   return (
@@ -77,50 +93,94 @@ export function WorkspacePanel({
       {/* Workspace Active Pane */}
       <div className="workspace-content">
         {activeTab === 'code' ? (
-          <div className="editor-container" id="editor-container">
-            {/* Editor File Bar */}
-            <div className="editor-file-bar">
-              <div className="editor-tabs" id="editor-tabs">
-                {workspaceFiles.map(file => (
-                  <button
-                    key={file.id}
-                    className={`file-tab ${file.id === activeFileId ? 'active' : ''}`}
-                    onClick={() => onSelectFile(file.id)}
-                  >
-                    <span>📄 {file.name}</span>
-                  </button>
-                ))}
+          <div className="editor-with-tree">
+            {showTree && (
+              <aside className="file-tree-aside">
+                <FileTree onOpenFile={onOpenDiskFile} activePath={activePath} />
+              </aside>
+            )}
+            <div className="editor-container" id="editor-container">
+              {/* Editor File Bar */}
+              <div className="editor-file-bar">
                 <button
-                  className="file-tab"
-                  style={{ opacity: 0.7 }}
-                  onClick={() => setShowAddFile(true)}
-                  id="btn-add-file-open"
+                  className="btn-icon"
+                  onClick={() => setShowTree(v => !v)}
+                  title={showTree ? 'Hide file tree' : 'Show file tree'}
+                  aria-label="Toggle file tree"
                 >
-                  <span>+ New File</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M3 12h18M3 18h18" />
+                  </svg>
                 </button>
+                <div className="editor-tabs" id="editor-tabs">
+                  {workspaceFiles.map(file => (
+                    <div
+                      key={file.id}
+                      className={`file-tab ${file.id === activeFileId ? 'active' : ''}`}
+                    >
+                      <button
+                        className="file-tab-label"
+                        onClick={() => onSelectFile(file.id)}
+                        title={file.filePath || file.name}
+                      >
+                        <span>{file.dirty ? '● ' : ''}📄 {file.name}</span>
+                      </button>
+                      <button
+                        className="file-tab-close"
+                        onClick={(e) => { e.stopPropagation(); onCloseFile(file.id); }}
+                        title="Close"
+                        aria-label={`Close ${file.name}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="file-tab"
+                    style={{ opacity: 0.7 }}
+                    onClick={() => setShowAddFile(true)}
+                    id="btn-add-file-open"
+                  >
+                    <span>+ New File</span>
+                  </button>
+                </div>
+                {activeFile && (
+                  <div className="editor-file-actions">
+                    {activeFile.filePath && (
+                      <button
+                        className="btn-ghost btn-sm"
+                        onClick={() => onSaveFile(activeFile.id)}
+                        disabled={!activeFile.dirty}
+                        title="Save (Ctrl+S)"
+                      >
+                        💾 Save
+                      </button>
+                    )}
+                    <span className="logo-badge" style={{ fontSize: '0.7rem' }}>
+                      {activeFile.language}
+                    </span>
+                  </div>
+                )}
               </div>
-              {activeFile && (
-                <span className="logo-badge" style={{ fontSize: '0.7rem' }}>
-                  {activeFile.language}
-                </span>
+
+              {/* Editor body */}
+              {activeFile ? (
+                <div className="editor-body">
+                  <textarea
+                    className="code-textarea"
+                    value={activeFile.content}
+                    onChange={e => onFileChange(activeFile.id, e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    id="code-editor-textarea"
+                    spellCheck={false}
+                  />
+                </div>
+              ) : (
+                <div className="editor-empty">
+                  No open files. Browse the file tree or create a new file.
+                </div>
               )}
             </div>
-
-            {/* Editor body with content and line numbers */}
-            {activeFile ? (
-              <div className="editor-body">
-                <textarea
-                  className="code-textarea"
-                  value={activeFile.content}
-                  onChange={e => onFileChange(activeFile.id, e.target.value)}
-                  id="code-editor-textarea"
-                />
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-                No open files. Create a file to start coding.
-              </div>
-            )}
           </div>
         ) : (
           <TaskBoard tasks={tasks} onCreateTask={onCreateTask} onTaskAction={onTaskAction} />
@@ -166,6 +226,7 @@ export function WorkspacePanel({
                   <option value="html">HTML</option>
                   <option value="css">CSS</option>
                   <option value="json">JSON</option>
+                  <option value="markdown">Markdown</option>
                 </select>
               </div>
               <div className="form-actions">

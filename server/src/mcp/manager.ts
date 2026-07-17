@@ -95,17 +95,45 @@ export class MCPManager {
   }
 
   /**
-   * Get status of all MCP servers.
+   * Get status of all MCP servers (running + configured-but-stopped).
    */
   getStatus(): Array<{ name: string; running: boolean; tools: string[] }> {
     const result: Array<{ name: string; running: boolean; tools: string[] }> = [];
+    const seen = new Set<string>();
+
     for (const [name, client] of this.clients) {
+      seen.add(name);
       const tools = Array.from(this.registeredTools.entries())
         .filter(([, s]) => s === name)
         .map(([t]) => t);
       result.push({ name, running: client.isRunning(), tools });
     }
+
+    // Include configured servers that aren't running
+    const cfg = this.config.load();
+    const servers = (cfg as any).mcpServers as Record<string, MCPServerConfig> | undefined;
+    if (servers) {
+      for (const name of Object.keys(servers)) {
+        if (!seen.has(name)) {
+          result.push({ name, running: false, tools: [] });
+        }
+      }
+    }
     return result;
+  }
+
+  /**
+   * Restart an MCP server using its saved config.
+   */
+  async restartServer(name: string): Promise<void> {
+    const cfg = this.config.load();
+    const servers = (cfg as any).mcpServers as Record<string, MCPServerConfig> | undefined;
+    const serverConfig = servers?.[name];
+    if (!serverConfig) {
+      throw new Error(`MCP server "${name}" not found in config`);
+    }
+    this.stopServer(name);
+    await this.startServer(name, serverConfig);
   }
 
   /**

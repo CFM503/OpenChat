@@ -1,0 +1,9 @@
+{
+  "name": "team-conventions",
+  "version": "1.0.0",
+  "description": "Example Claude Code-style plugin: shared skills and an agent definition",
+  "author": {
+    "name": "OpenChat"
+  },
+  "keywords": ["conventions", "example", "skills"]
+}

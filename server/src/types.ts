@@ -49,6 +49,13 @@ export type ServerMessage =
   | { type: 'thinking'; text: string }
   | { type: 'tool_start'; toolCallId: string; name: string; input: string }
   | { type: 'tool_result'; toolCallId: string; name: string; result: ToolResult }
+  | {
+      type: 'pack_stats';
+      estimatedTokens: number;
+      strategy: string;
+      keptMessages: number;
+      droppedMessages: number;
+    }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'pong' };

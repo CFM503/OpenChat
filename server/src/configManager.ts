@@ -4,6 +4,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import type { ModelConfig } from './providers/modelTypes.js';
+
+export type { ModelConfig };
 
 export interface OpenChatConfig {
   models?: ModelConfig[];
@@ -18,20 +21,17 @@ export interface OpenChatConfig {
   allowedDirectories?: string[];
   mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
   registries?: string[];
-}
-
-export interface ModelConfig {
-  id: string;
-  name: string;
-  provider: 'openai' | 'ollama' | 'custom';
-  endpoint: string;
-  apiKey?: string;
-  model: string;
-  maxTokens: number;
-  temperature: number;
-  isDefault: boolean;
-  disableTools?: boolean;
-  useMaxTokens?: boolean;
+  /** Global default context strategy if model omits it */
+  defaultContextStrategy?: 'full' | 'balanced' | 'minimal';
+  /**
+   * Multi-model agent routing:
+   * - cheapModelId: used for conversation summarization (token saver)
+   * - codingModelId: preferred for tool-heavy coding (future use)
+   */
+  agentRouting?: {
+    cheapModelId?: string;
+    codingModelId?: string;
+  };
 }
 
 /** Sanitize error messages to strip API keys and secrets. */
@@ -62,7 +62,42 @@ export class ConfigManager {
   }
 
   save(config: OpenChatConfig): void {
-    this.writeAtomic(config);
+    this.writeAtomic(this.mergePreservingSecrets(config));
+  }
+
+  private mergePreservingSecrets(incoming: OpenChatConfig): OpenChatConfig {
+    const existing = this.load();
+    const isMasked = (v: unknown) =>
+      typeof v !== 'string' || v.trim() === '' || /^\*+$/.test(v.trim()) || v.includes('***');
+
+    const merged: OpenChatConfig = { ...existing, ...incoming };
+
+    if (isMasked(incoming.searchApiKey) && existing.searchApiKey) {
+      merged.searchApiKey = existing.searchApiKey;
+    }
+    if (isMasked(incoming.tavilyApiKey) && existing.tavilyApiKey) {
+      merged.tavilyApiKey = existing.tavilyApiKey;
+    }
+
+    if (incoming.models && existing.models) {
+      const byId = new Map(existing.models.map(m => [m.id, m]));
+      merged.models = incoming.models.map(m => {
+        const prev = byId.get(m.id);
+        if (prev && isMasked(m.apiKey) && prev.apiKey) {
+          return { ...m, apiKey: prev.apiKey };
+        }
+        return m;
+      });
+    }
+
+    if (incoming.mcpServers === undefined && existing.mcpServers) {
+      merged.mcpServers = existing.mcpServers;
+    }
+    if (incoming.registries === undefined && existing.registries) {
+      merged.registries = existing.registries;
+    }
+
+    return merged;
   }
 
   private writeAtomic(config: OpenChatConfig): void {
@@ -70,17 +105,14 @@ export class ConfigManager {
     const tmpPath = path.join(dir, `.openchat.tmp.${process.pid}`);
     const backupPath = this.configPath + '.bak';
 
-    // Atomic write: write to temp file, then rename
     fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), 'utf-8');
 
-    // Create backup of current config
     if (fs.existsSync(this.configPath)) {
       try { fs.copyFileSync(this.configPath, backupPath); } catch { /* ignore */ }
     }
 
     fs.renameSync(tmpPath, this.configPath);
 
-    // Restrict permissions (owner read/write only)
     try { fs.chmodSync(this.configPath, 0o600); } catch { /* ignore on Windows */ }
   }
 

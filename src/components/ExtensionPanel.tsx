@@ -78,8 +78,13 @@ export function ExtensionPanel() {
     return <div style={{ padding: '20px', color: 'var(--text-secondary)' }}>Loading extensions...</div>;
   }
 
-  const builtinSkills = skills.filter(s => s.builtin);
-  const userSkills = skills.filter(s => !s.builtin);
+  const skillSourceBadge = (s: SkillInfo) => {
+    if (s.builtin || s.source === 'builtin') return 'built-in';
+    if (s.source === 'plugin') return `plugin${s.pluginName ? ':' + s.pluginName : ''}`;
+    if (s.source === 'project') return 'project';
+    if (s.source === 'command') return 'command';
+    return s.source || 'personal';
+  };
 
   return (
     <div>
@@ -109,6 +114,19 @@ export function ExtensionPanel() {
       {/* Installed Tab */}
       {activeTab === 'installed' && (
         <div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={async () => {
+                await backendClient.reloadSkills();
+                await backendClient.reloadPlugins();
+                await loadData();
+              }}
+            >
+              ↻ Reload skills & plugins
+            </button>
+          </div>
+
           {/* Installed packages from registry */}
           {installedPkgs.length > 0 && (
             <div className="extension-section">
@@ -134,27 +152,33 @@ export function ExtensionPanel() {
             </div>
           )}
 
-          {/* Skills */}
+          {/* Skills — Claude Code compatible */}
           <div className="extension-section">
             <h4>⚡ Skills ({skills.length})</h4>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              Type <code style={{ background: 'var(--bg-surface)', padding: '1px 4px', borderRadius: '3px' }}>/</code> in chat to trigger shortcuts.
+              Claude Code format: <code>~/.claude/skills/&lt;name&gt;/SKILL.md</code>,{' '}
+              <code>.claude/skills/</code>, plugin <code>skills/</code>.
+              Type <code>/</code> in chat or let the agent call the <code>skill</code> tool.
             </p>
-            {builtinSkills.map(skill => (
-              <div key={skill.name} className="extension-card">
+            {skills.map(skill => (
+              <div key={skill.name + skill.shortcut} className="extension-card">
                 <div className="extension-card-header">
                   <span className="extension-card-name">{skill.shortcut}</span>
-                  <span className="extension-badge builtin">built-in</span>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {skill.disableModelInvocation && (
+                      <span className="extension-badge stopped" title="User-only">user-only</span>
+                    )}
+                    <span className={`extension-badge ${skill.builtin ? 'builtin' : 'running'}`}>
+                      {skillSourceBadge(skill)}
+                    </span>
+                  </div>
                 </div>
                 <div className="extension-card-desc">{skill.description}</div>
-              </div>
-            ))}
-            {userSkills.map(skill => (
-              <div key={skill.name} className="extension-card">
-                <div className="extension-card-header">
-                  <span className="extension-card-name">{skill.shortcut}</span>
-                </div>
-                <div className="extension-card-desc">{skill.description}</div>
+                {skill.argumentHint && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Args: {skill.argumentHint}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -178,30 +202,62 @@ export function ExtensionPanel() {
                   <div className="extension-card-desc">
                     {server.tools.length > 0 ? `Tools: ${server.tools.join(', ')}` : 'No tools'}
                   </div>
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      className="btn-secondary btn-sm"
+                      onClick={async () => {
+                        const result = await backendClient.restartMCPServer(server.name);
+                        if (!result.success) alert(result.error || 'Restart failed');
+                        await loadData();
+                      }}
+                    >
+                      ↻ Restart
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
 
-          {/* Plugins */}
+          {/* Plugins — Claude Code layout + legacy tools */}
           <div className="extension-section">
             <h4>🧩 Plugins ({plugins.length})</h4>
             {plugins.length === 0 ? (
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                No plugins installed. Install from the Store tab, or place in <code>~/.openchat/plugins/</code>.
+                Place Claude Code plugins in <code>~/.openchat/plugins/</code> or <code>~/.claude/plugins/</code>
+                {' '}(<code>.claude-plugin/plugin.json</code> + <code>skills/</code>).
+                Legacy OpenChat plugins: <code>manifest.json</code> + <code>index.js</code>.
               </div>
             ) : (
               plugins.map(plugin => (
                 <div key={plugin.name} className="extension-card">
                   <div className="extension-card-header">
                     <span className="extension-card-name">
-                      {plugin.name} <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>v{plugin.version}</span>
+                      {plugin.name}{' '}
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        v{plugin.version}
+                      </span>
                     </span>
-                    <span className={`extension-badge ${plugin.enabled ? 'running' : 'stopped'}`}>
-                      {plugin.enabled ? 'enabled' : 'disabled'}
-                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {plugin.format && (
+                        <span className="extension-badge builtin">{plugin.format}</span>
+                      )}
+                      <span className={`extension-badge ${plugin.enabled ? 'running' : 'stopped'}`}>
+                        {plugin.enabled ? 'enabled' : 'disabled'}
+                      </span>
+                    </div>
                   </div>
                   <div className="extension-card-desc">{plugin.description}</div>
+                  {plugin.skills && plugin.skills.length > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                      Skills: {plugin.skills.map(s => `/${plugin.name}:${s}`).join(', ')}
+                    </div>
+                  )}
+                  {plugin.agents && plugin.agents.length > 0 && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                      Agents: {plugin.agents.join(', ')}
+                    </div>
+                  )}
                   {plugin.tools.length > 0 && (
                     <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
                       Tools: {plugin.tools.map(t => t.name).join(', ')}

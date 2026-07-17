@@ -129,17 +129,17 @@ export function TaskBoard({ tasks, onCreateTask, onTaskAction }: TaskBoardProps)
                       {/* Action buttons based on status machine */}
                       <div className="task-card-actions" onClick={e => e.stopPropagation()}>
                         {isValidTransition(task.status, 'START') && (
-                          <button className="btn-task-action" onClick={() => onTaskAction(task.id, 'START')} data-action="START">
-                            Start
+                          <button className="btn-task-action" onClick={() => onTaskAction(task.id, 'START')} data-action="START" title="Run this task with the AI agent">
+                            ▶ Run Agent
                           </button>
                         )}
                         {isValidTransition(task.status, 'COMPLETE') && (
-                          <button className="btn-task-action" style={{ borderColor: 'var(--color-success)' }} onClick={() => onTaskAction(task.id, 'COMPLETE', 'Outputs processed successfully.')} data-action="COMPLETE">
+                          <button className="btn-task-action" style={{ borderColor: 'var(--color-success)' }} onClick={() => onTaskAction(task.id, 'COMPLETE', 'Marked complete by user.')} data-action="COMPLETE">
                             Complete
                           </button>
                         )}
                         {isValidTransition(task.status, 'FAIL') && (
-                          <button className="btn-task-action" style={{ borderColor: 'var(--color-error)' }} onClick={() => onTaskAction(task.id, 'FAIL', 'Simulated execution error.')} data-action="FAIL">
+                          <button className="btn-task-action" style={{ borderColor: 'var(--color-error)' }} onClick={() => onTaskAction(task.id, 'FAIL', 'Marked failed by user.')} data-action="FAIL">
                             Fail
                           </button>
                         )}

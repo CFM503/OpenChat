@@ -1,10 +1,12 @@
 // ============================================================================
-// ProviderGateway — Unified multi-provider LLM routing
-// Supports OpenAI-compatible, Ollama, and custom endpoints
+// ProviderGateway — Multi-provider LLM routing with dialect adapters
 // ============================================================================
 
 import { ProxyAgent } from 'undici';
-import type { ConfigManager, ModelConfig } from './configManager.js';
+import type { ConfigManager } from './configManager.js';
+import type { ModelConfig } from './providers/modelTypes.js';
+import { buildCompletionRequest } from './providers/requestAdapter.js';
+import { resolveModelCaps } from './providers/resolveCaps.js';
 
 interface StreamChunk {
   type: 'content' | 'thinking' | 'tool_call';
@@ -28,7 +30,8 @@ interface CompletionParams {
 }
 
 export class ProviderGateway {
-  private config: ConfigManager;
+  /** Exposed for agentLoop agentRouting lookups */
+  readonly config: ConfigManager;
   private cachedProxyUrl: string | undefined;
   private proxyAgent: ProxyAgent | undefined;
 
@@ -36,9 +39,6 @@ export class ProviderGateway {
     this.config = config;
   }
 
-  /**
-   * Get a ProxyAgent if proxyUrl is configured. Recreates the agent when the URL changes.
-   */
   private getProxyDispatcher(): ProxyAgent | undefined {
     const cfg = this.config.load();
     if (!cfg.proxyEnabled) {
@@ -60,99 +60,88 @@ export class ProviderGateway {
     return this.proxyAgent;
   }
 
-  /**
-   * Get the active model config.
-   */
   getActiveModel(modelId?: string): ModelConfig | undefined {
     const cfg = this.config.load();
+    let model: ModelConfig | undefined;
     if (modelId) {
-      return cfg.models?.find(m => m.id === modelId);
+      model = cfg.models?.find(m => m.id === modelId);
+    } else if (cfg.activeModelId) {
+      model = cfg.models?.find(m => m.id === cfg.activeModelId);
+    } else {
+      model = cfg.models?.find(m => m.isDefault) ?? cfg.models?.[0];
     }
-    if (cfg.activeModelId) {
-      return cfg.models?.find(m => m.id === cfg.activeModelId);
+    // Apply global default context strategy if model omits it
+    if (model && !model.contextStrategy && cfg.defaultContextStrategy) {
+      return { ...model, contextStrategy: cfg.defaultContextStrategy };
     }
-    return cfg.models?.find(m => m.isDefault) ?? cfg.models?.[0];
+    return model;
   }
 
-  /**
-   * Check if the model has valid credentials for real API calls.
-   */
   canMakeRequest(modelId?: string): boolean {
     const model = this.getActiveModel(modelId);
     if (!model) return false;
     if (model.provider === 'ollama') return true;
-    // Allow requests without API key (LM Studio, local proxies, etc.)
     return !!(model.endpoint && model.endpoint.trim().length > 0);
   }
 
-  /**
-   * Stream a completion from the active provider.
-   * Yields StreamChunk events as they arrive.
-   */
   async *streamCompletion(params: CompletionParams): AsyncGenerator<StreamChunk> {
     const model = this.getActiveModel(params.modelId);
     if (!model) throw new Error('No active model configured');
 
-    if (model.provider === 'ollama') {
-      yield* this.streamOllama(model, params);
-    } else {
-      yield* this.streamOpenAICompatible(model, params);
+    const caps = resolveModelCaps(model);
+    // Filter tools if model doesn't support them
+    const tools =
+      caps.supportsTools && params.tools?.length ? params.tools : undefined;
+
+    const built = buildCompletionRequest(model, {
+      messages: params.messages,
+      tools,
+      stream: true,
+    });
+
+    if (built.apiStyle === 'ollama') {
+      yield* this.streamNdjson(built, params.signal, 'ollama');
+      return;
     }
+    if (built.apiStyle === 'anthropic') {
+      yield* this.streamAnthropropic(built, params.signal);
+      return;
+    }
+    yield* this.streamOpenAISse(built, params.signal);
   }
 
-  private async *streamOpenAICompatible(
-    model: ModelConfig,
-    params: CompletionParams,
+  private async *streamOpenAISse(
+    built: { url: string; headers: Record<string, string>; body: Record<string, unknown> },
+    signal?: AbortSignal,
   ): AsyncGenerator<StreamChunk> {
-    const url = normalizeEndpoint(model.endpoint);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (model.apiKey) {
-      headers['Authorization'] = `Bearer ${model.apiKey}`;
-    }
-
-    const body: Record<string, any> = {
-      model: model.model,
-      messages: params.messages,
-      temperature: model.temperature,
-      stream: true,
-    };
-    if (model.useMaxTokens !== false) {
-      body.max_tokens = model.maxTokens;
-    }
-
-    if (params.tools?.length) {
-      body.tools = params.tools;
-      body.tool_choice = 'auto';
-    }
-
-    const resp = await fetch(url, {
+    const resp = await fetch(built.url, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: params.signal,
+      headers: built.headers,
+      body: JSON.stringify(built.body),
+      signal,
       ...(this.getProxyDispatcher() ? { dispatcher: this.proxyAgent! } : {}),
     } as any);
 
     if (!resp.ok) {
       const errBody = await resp.text();
       const sanitized = errBody.replace(/sk-[a-zA-Z0-9_-]{20,}/g, 'sk-***');
-      // Provide helpful hints for common errors
       let hint = '';
       if (resp.status === 500) {
-        hint = ' — model may have run out of context. Try reducing Max Tokens in model settings.';
+        hint = ' — try reducing Max Tokens or switch context strategy to minimal.';
       } else if (resp.status === 404) {
         hint = ' — check model name and endpoint URL.';
       } else if (resp.status === 401 || resp.status === 403) {
-        hint = ' — check API key.';
+        hint = ' — check API key / auth style.';
+      } else if (resp.status === 400 && sanitized.includes('max_tokens')) {
+        hint = ' — this model may need max_completion_tokens (set Token Param in model settings).';
+      } else if (resp.status === 400 && sanitized.toLowerCase().includes('temperature')) {
+        hint = ' — disable temperature for this reasoning model.';
       }
       throw new Error(`Provider error (${resp.status})${hint}: ${sanitized.substring(0, 500)}`);
     }
 
     if (!resp.body) {
-      const text = await resp.text();
-      yield { type: 'content', content: text };
+      yield { type: 'content', content: await resp.text() };
       return;
     }
 
@@ -182,8 +171,12 @@ export class ProviderGateway {
             if (delta.content) {
               yield { type: 'content', content: delta.content };
             }
+            // OpenAI-style reasoning / DeepSeek reasoner
             if (delta.reasoning_content) {
               yield { type: 'thinking', content: delta.reasoning_content };
+            }
+            if (delta.reasoning) {
+              yield { type: 'thinking', content: typeof delta.reasoning === 'string' ? delta.reasoning : JSON.stringify(delta.reasoning) };
             }
             if (delta.tool_calls) {
               yield { type: 'tool_call', content: '', toolCalls: delta.tool_calls };
@@ -194,7 +187,6 @@ export class ProviderGateway {
               yield { type: 'content', content: '', finishReason };
             }
           } catch {
-            // M-2: Log malformed JSON instead of silently swallowing
             console.warn('[provider] Skipping malformed SSE JSON:', trimmed.slice(0, 100));
           }
         }
@@ -204,44 +196,16 @@ export class ProviderGateway {
     }
   }
 
-  private async *streamOllama(
-    model: ModelConfig,
-    params: CompletionParams,
+  private async *streamNdjson(
+    built: { url: string; headers: Record<string, string>; body: Record<string, unknown> },
+    signal?: AbortSignal,
+    _kind?: string,
   ): AsyncGenerator<StreamChunk> {
-    // Convert multimodal content blocks to Ollama format (images as raw base64 array)
-    const messages = params.messages.map(m => {
-      if (Array.isArray(m.content)) {
-        const textParts: string[] = [];
-        const images: string[] = [];
-        for (const block of m.content) {
-          if (block.type === 'text' && block.text) {
-            textParts.push(block.text);
-          } else if (block.type === 'image_url' && block.image_url?.url) {
-            const url = block.image_url.url;
-            const idx = url.indexOf(';base64,');
-            images.push(idx >= 0 ? url.slice(idx + 8) : url);
-          }
-        }
-        return { role: m.role, content: textParts.join('\n'), images };
-      }
-      return m;
-    });
-
-    const body: Record<string, any> = {
-      model: model.model,
-      messages,
-      stream: true,
-      options: {
-        num_predict: model.maxTokens,
-        temperature: model.temperature,
-      },
-    };
-
-    const resp = await fetch(model.endpoint, {
+    const resp = await fetch(built.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: params.signal,
+      headers: built.headers,
+      body: JSON.stringify(built.body),
+      signal,
       ...(this.getProxyDispatcher() ? { dispatcher: this.proxyAgent! } : {}),
     } as any);
 
@@ -270,7 +234,6 @@ export class ProviderGateway {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-
           try {
             const parsed = JSON.parse(trimmed);
             if (parsed.message?.content) {
@@ -280,7 +243,6 @@ export class ProviderGateway {
               yield { type: 'content', content: '', finishReason: 'stop' };
             }
           } catch {
-            // M-2: Log malformed JSON instead of silently swallowing
             console.warn('[ollama] Skipping malformed JSON:', trimmed.slice(0, 100));
           }
         }
@@ -289,40 +251,107 @@ export class ProviderGateway {
       reader.releaseLock();
     }
   }
-}
 
-/**
- * Normalize endpoint URL to include /chat/completions path.
- * M-15: Handle endpoints that already contain API path segments.
- */
-function normalizeEndpoint(url: string): string {
-  let normalized = url.trim().replace(/\/+$/, '');
-  // Already a complete chat completions URL
-  if (normalized.endsWith('/chat/completions')) return normalized;
-  // Already has /v1 suffix
-  if (normalized.endsWith('/v1')) return normalized + '/chat/completions';
-  try {
-    const parsed = new URL(normalized);
-    const p = parsed.pathname.replace(/\/+$/, '');
-    // Check if path already contains /openai or similar sub-path before appending
-    if (/\/openai$/i.test(p)) {
-      return normalized + '/chat/completions';
+  /** Anthropic SSE: event: content_block_delta / message_delta */
+  private async *streamAnthropropic(
+    built: { url: string; headers: Record<string, string>; body: Record<string, unknown> },
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamChunk> {
+    const resp = await fetch(built.url, {
+      method: 'POST',
+      headers: built.headers,
+      body: JSON.stringify(built.body),
+      signal,
+      ...(this.getProxyDispatcher() ? { dispatcher: this.proxyAgent! } : {}),
+    } as any);
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      throw new Error(`Anthropic error (${resp.status}): ${errBody.substring(0, 500)}`);
     }
-    // API version prefix only (e.g., /v1beta, /v1alpha) → append /openai/chat/completions
-    if (/^\/v\d+\w*$/.test(p)) {
-      return normalized + '/openai/chat/completions';
+
+    if (!resp.body) {
+      yield { type: 'content', content: await resp.text() };
+      return;
     }
-    // Path like /v1beta/openai → append /chat/completions
-    if (/^\/v\d+\w*\/openai/.test(p)) {
-      return normalized + '/chat/completions';
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    // Track tool_use blocks by index
+    const toolBlocks = new Map<number, { id: string; name: string; arguments: string }>();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+          const data = trimmed.slice(6);
+          if (data === '[DONE]') continue;
+          try {
+            const ev = JSON.parse(data);
+            if (ev.type === 'content_block_delta') {
+              if (ev.delta?.type === 'text_delta' && ev.delta.text) {
+                yield { type: 'content', content: ev.delta.text };
+              }
+              if (ev.delta?.type === 'thinking_delta' && ev.delta.thinking) {
+                yield { type: 'thinking', content: ev.delta.thinking };
+              }
+              if (ev.delta?.type === 'input_json_delta' && ev.delta.partial_json != null) {
+                const idx = ev.index ?? 0;
+                const block = toolBlocks.get(idx);
+                if (block) {
+                  block.arguments += ev.delta.partial_json;
+                  yield {
+                    type: 'tool_call',
+                    content: '',
+                    toolCalls: [{
+                      index: idx,
+                      id: block.id,
+                      name: block.name,
+                      arguments: ev.delta.partial_json,
+                    }],
+                  };
+                }
+              }
+            }
+            if (ev.type === 'content_block_start') {
+              if (ev.content_block?.type === 'tool_use') {
+                const idx = ev.index ?? 0;
+                toolBlocks.set(idx, {
+                  id: ev.content_block.id,
+                  name: ev.content_block.name,
+                  arguments: '',
+                });
+                yield {
+                  type: 'tool_call',
+                  content: '',
+                  toolCalls: [{
+                    index: idx,
+                    id: ev.content_block.id,
+                    name: ev.content_block.name,
+                    arguments: '',
+                  }],
+                };
+              }
+            }
+            if (ev.type === 'message_delta' && ev.delta?.stop_reason) {
+              yield { type: 'content', content: '', finishReason: ev.delta.stop_reason };
+            }
+          } catch {
+            // skip
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
-    // Complete endpoint path (Ollama /api/generate, /api/chat, etc.) → don't modify
-    if (p !== '' && p !== '/') {
-      return normalized;
-    }
-  } catch {
-    // Not a valid URL, proceed with normalization
   }
-  // Bare domain → append /v1/chat/completions
-  return normalized + '/v1/chat/completions';
 }

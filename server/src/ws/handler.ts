@@ -1,0 +1,92 @@
+// ============================================================================
+// WebSocket connection handler
+// ============================================================================
+
+import type { WebSocket } from 'ws';
+import type { Runtime } from '../runtime.js';
+import type { ClientMessage, ServerMessage } from '../types.js';
+import { sanitizeError } from '../configManager.js';
+
+export function attachWebSocketHandlers(
+  wss: { on: (event: string, cb: (ws: WebSocket) => void) => void },
+  rt: Runtime,
+): void {
+  wss.on('connection', (ws: WebSocket) => {
+    console.log('[ws] Client connected');
+    let currentAbort: AbortController | null = null;
+
+    ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[]) => {
+      let msg: ClientMessage;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid JSON' } satisfies ServerMessage));
+        return;
+      }
+
+      switch (msg.type) {
+        case 'chat': {
+          if (currentAbort) currentAbort.abort();
+          currentAbort = new AbortController();
+
+          if (!rt.providers.canMakeRequest(msg.modelId)) {
+            ws.send(
+              JSON.stringify({
+                type: 'error',
+                message:
+                  'No API credentials configured. Use Settings to add a model, or use demo mode.',
+              } satisfies ServerMessage),
+            );
+            ws.send(JSON.stringify({ type: 'done' } satisfies ServerMessage));
+            break;
+          }
+
+          try {
+            await rt.agentLoop.run({
+              messages: msg.messages,
+              modelId: msg.modelId,
+              signal: currentAbort.signal,
+              onEvent: (event) => {
+                if (ws.readyState === 1 /* OPEN */) {
+                  ws.send(JSON.stringify(event));
+                }
+              },
+            });
+          } catch (err: any) {
+            if (ws.readyState === 1) {
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: sanitizeError(err),
+                } satisfies ServerMessage),
+              );
+              ws.send(JSON.stringify({ type: 'done' } satisfies ServerMessage));
+            }
+          }
+          break;
+        }
+
+        case 'abort': {
+          if (currentAbort) {
+            currentAbort.abort();
+            currentAbort = null;
+          }
+          break;
+        }
+
+        case 'ping': {
+          ws.send(JSON.stringify({ type: 'pong' } satisfies ServerMessage));
+          break;
+        }
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('[ws] Client disconnected');
+      if (currentAbort) {
+        currentAbort.abort();
+        currentAbort = null;
+      }
+    });
+  });
+}

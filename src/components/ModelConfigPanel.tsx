@@ -4,7 +4,7 @@
 // ============================================================================
 
 import React, { useState, useCallback } from 'react';
-import type { ModelConfig, ModelProvider } from '../core/types';
+import type { ModelConfig, ModelProvider, ContextStrategy, TokenParamStyle, ApiStyle } from '../core/types';
 import { ModelRouter, normalizeEndpoint, PROVIDER_PRESETS, type ProviderPreset } from '../core/modelRouter';
 
 interface ModelConfigPanelProps {
@@ -36,12 +36,31 @@ export function ModelConfigPanel({
     formIsDefault: boolean;
     formDisableTools: boolean;
     formUseMaxTokens: boolean;
+    // Advanced multi-provider
+    formApiStyle: ApiStyle | '';
+    formTokenParam: TokenParamStyle | '';
+    formContextWindow: number;
+    formContextStrategy: ContextStrategy;
+    formTopP: string;
+    formSupportsTemperature: boolean;
+    formReasoningMode: 'none' | 'enabled' | 'auto';
+    formStrictAlternation: boolean;
+    formAuthStyle: 'bearer' | 'anthropic-x-api-key' | 'query' | 'none';
+    formSkillCatalogMode: 'full' | 'names' | 'off';
+    formToolResultMaxChars: number;
+    formShowAdvanced: boolean;
   }
 
   const blankForm: FormState = {
     formId: '', formName: '', formProvider: 'openai', formEndpoint: '',
     formApiKey: '', formModel: '', formMaxTokens: 4096, formTemperature: 0.7,
     formIsDefault: false, formDisableTools: false, formUseMaxTokens: true,
+    formApiStyle: '', formTokenParam: '', formContextWindow: 128000,
+    formContextStrategy: 'balanced', formTopP: '',
+    formSupportsTemperature: true, formReasoningMode: 'none',
+    formStrictAlternation: false, formAuthStyle: 'bearer',
+    formSkillCatalogMode: 'names', formToolResultMaxChars: 4000,
+    formShowAdvanced: false,
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -64,21 +83,36 @@ export function ModelConfigPanel({
   }, []);
 
   const applyPreset = useCallback((preset: ProviderPreset) => {
-    setFormField('formId', `model_${preset.id}_${Date.now()}`);
-    setFormField('formName', preset.name);
-    setFormField('formProvider', preset.provider);
-    setFormField('formEndpoint', preset.endpoint);
-    setFormField('formApiKey', '');
-    setFormField('formModel', preset.model);
-    setFormField('formMaxTokens', 131072);
-    setFormField('formTemperature', 0.7);
-    setFormField('formIsDefault', false);
-    setFormField('formDisableTools', false);
+    const d = preset.defaults || {};
+    setForm({
+      ...blankForm,
+      formId: `model_${preset.id}_${Date.now()}`,
+      formName: preset.name,
+      formProvider: preset.provider,
+      formEndpoint: preset.endpoint,
+      formApiKey: '',
+      formModel: preset.model,
+      formMaxTokens: d.maxTokens ?? 8192,
+      formTemperature: d.temperature ?? 0.7,
+      formIsDefault: false,
+      formDisableTools: d.disableTools ?? false,
+      formUseMaxTokens: d.tokenParam !== 'none',
+      formApiStyle: d.apiStyle ?? '',
+      formTokenParam: d.tokenParam ?? '',
+      formContextWindow: d.contextWindow ?? 128000,
+      formContextStrategy: d.contextStrategy ?? 'balanced',
+      formSupportsTemperature: d.supportsTemperature ?? true,
+      formReasoningMode: d.reasoningMode ?? 'none',
+      formAuthStyle: d.authStyle ?? 'bearer',
+      formSkillCatalogMode: d.skillCatalogMode ?? 'names',
+      formToolResultMaxChars: d.toolResultMaxChars ?? 4000,
+      formShowAdvanced: false,
+    });
     resetForm();
     setIsEditing(true);
     setEditingId(null);
     setShowPresets(false);
-  }, [setFormField, resetForm]);
+  }, [resetForm]);
 
   // Auto-detect models from endpoint
   const handleDetectModels = useCallback(async () => {
@@ -119,17 +153,32 @@ export function ModelConfigPanel({
   const handleEdit = (model: ModelConfig) => {
     setIsEditing(true);
     setEditingId(model.id);
-    setFormField('formId', model.id);
-    setFormField('formName', model.name);
-    setFormField('formProvider', model.provider);
-    setFormField('formEndpoint', model.endpoint);
-    setFormField('formApiKey', model.apiKey || '');
-    setFormField('formModel', model.model);
-    setFormField('formMaxTokens', model.maxTokens);
-    setFormField('formTemperature', model.temperature);
-    setFormField('formIsDefault', model.isDefault);
-    setFormField('formDisableTools', model.disableTools ?? false);
-    setFormField('formUseMaxTokens', model.useMaxTokens ?? true);
+    setForm({
+      ...blankForm,
+      formId: model.id,
+      formName: model.name,
+      formProvider: model.provider,
+      formEndpoint: model.endpoint,
+      formApiKey: model.apiKey || '',
+      formModel: model.model,
+      formMaxTokens: model.maxTokens,
+      formTemperature: model.temperature,
+      formIsDefault: model.isDefault,
+      formDisableTools: model.disableTools ?? false,
+      formUseMaxTokens: model.useMaxTokens ?? (model.tokenParam !== 'none'),
+      formApiStyle: model.apiStyle ?? '',
+      formTokenParam: model.tokenParam ?? '',
+      formContextWindow: model.contextWindow ?? 128000,
+      formContextStrategy: model.contextStrategy ?? 'balanced',
+      formTopP: model.topP != null ? String(model.topP) : '',
+      formSupportsTemperature: model.supportsTemperature ?? true,
+      formReasoningMode: model.reasoningMode ?? 'none',
+      formStrictAlternation: model.strictAlternation ?? false,
+      formAuthStyle: model.authStyle ?? 'bearer',
+      formSkillCatalogMode: model.skillCatalogMode ?? 'names',
+      formToolResultMaxChars: model.toolResultMaxChars ?? 4000,
+      formShowAdvanced: false,
+    });
     resetForm();
   };
 
@@ -170,6 +219,17 @@ export function ModelConfigPanel({
       isDefault: form.formIsDefault,
       disableTools: form.formDisableTools,
       useMaxTokens: form.formUseMaxTokens,
+      apiStyle: form.formApiStyle || undefined,
+      tokenParam: form.formTokenParam || (form.formUseMaxTokens ? undefined : 'none'),
+      contextWindow: form.formContextWindow || undefined,
+      contextStrategy: form.formContextStrategy,
+      topP: form.formTopP !== '' ? parseFloat(form.formTopP) : undefined,
+      supportsTemperature: form.formSupportsTemperature,
+      reasoningMode: form.formReasoningMode,
+      strictAlternation: form.formStrictAlternation || undefined,
+      authStyle: form.formAuthStyle,
+      skillCatalogMode: form.formSkillCatalogMode,
+      toolResultMaxChars: form.formToolResultMaxChars,
     };
 
     const validationErrors = ModelRouter.validateConfig(config);
@@ -251,36 +311,46 @@ export function ModelConfigPanel({
             <button className="btn-ghost" onClick={() => setShowPresets(false)}>← Back</button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '16px' }}>
-            {PROVIDER_PRESETS.map(preset => (
-              <button
-                key={preset.id}
-                onClick={() => applyPreset(preset)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px',
-                  padding: '12px 14px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  color: 'var(--text-primary)',
-                  fontSize: '13px',
-                  textAlign: 'left',
-                  transition: 'border-color 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-color)')}
-              >
-                <span style={{ fontSize: '20px' }}>{preset.icon}</span>
-                <div>
-                  <div style={{ fontWeight: '600' }}>{preset.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {preset.needsApiKey ? 'API Key required' : 'Local · No key needed'}
-                  </div>
+          {(['cn', 'global', 'local'] as const).map(region => {
+            const list = PROVIDER_PRESETS.filter(p => (p.region || 'global') === region);
+            if (!list.length) return null;
+            const title = region === 'cn' ? '🇨🇳 国内' : region === 'local' ? '🏠 本地' : '🌍 国际';
+            return (
+              <div key={region} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>{title}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                  {list.map(preset => (
+                    <button
+                      key={preset.id}
+                      onClick={() => applyPreset(preset)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        padding: '12px 14px',
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        textAlign: 'left',
+                        transition: 'border-color 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-color)')}
+                    >
+                      <span style={{ fontSize: '20px' }}>{preset.icon}</span>
+                      <div>
+                        <div style={{ fontWeight: '600' }}>{preset.name}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {preset.needsApiKey ? 'API Key' : 'No key'} · {preset.model || 'auto'}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              </button>
-            ))}
-          </div>
+              </div>
+            );
+          })}
 
           <div style={{ textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
             <button className="btn-ghost" onClick={handleManualAdd} style={{ fontSize: '12px' }}>
@@ -508,6 +578,171 @@ export function ModelConfigPanel({
               Fixed max tokens
             </label>
           </div>
+
+          {/* Context strategy — primary token-cost control */}
+          <div className="form-group">
+            <label>Context strategy (token cost)</label>
+            <select
+              className="form-select"
+              value={form.formContextStrategy}
+              onChange={e => setFormField('formContextStrategy', e.target.value as ContextStrategy)}
+            >
+              <option value="minimal">Minimal — lowest cost (short history, name-only skills)</option>
+              <option value="balanced">Balanced — default (truncate tools, drop old turns)</option>
+              <option value="full">Full — keep more history (higher cost)</option>
+            </select>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+              Packs system + recent turns under a budget; older turns become a compact stub or LLM summary.
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ marginBottom: 12, fontSize: 12 }}
+            onClick={() => setFormField('formShowAdvanced', !form.formShowAdvanced)}
+          >
+            {form.formShowAdvanced ? '▼' : '▶'} Advanced provider params
+          </button>
+
+          {form.formShowAdvanced && (
+            <div style={{
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>API style</label>
+                  <select
+                    className="form-select"
+                    value={form.formApiStyle}
+                    onChange={e => setFormField('formApiStyle', e.target.value as ApiStyle | '')}
+                  >
+                    <option value="">Auto-detect</option>
+                    <option value="openai">OpenAI-compatible</option>
+                    <option value="anthropic">Anthropic Messages</option>
+                    <option value="ollama">Ollama</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Token param</label>
+                  <select
+                    className="form-select"
+                    value={form.formTokenParam}
+                    onChange={e => setFormField('formTokenParam', e.target.value as TokenParamStyle | '')}
+                  >
+                    <option value="">Auto</option>
+                    <option value="max_tokens">max_tokens</option>
+                    <option value="max_completion_tokens">max_completion_tokens (o1/o3)</option>
+                    <option value="num_predict">num_predict (Ollama)</option>
+                    <option value="none">Omit</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Context window</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    min={2048}
+                    max={2000000}
+                    value={form.formContextWindow}
+                    onChange={e => setFormField('formContextWindow', parseInt(e.target.value) || 128000)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Auth style</label>
+                  <select
+                    className="form-select"
+                    value={form.formAuthStyle}
+                    onChange={e => setFormField('formAuthStyle', e.target.value as FormState['formAuthStyle'])}
+                  >
+                    <option value="bearer">Bearer token</option>
+                    <option value="anthropic-x-api-key">Anthropic x-api-key</option>
+                    <option value="query">Query ?key=</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Reasoning mode</label>
+                  <select
+                    className="form-select"
+                    value={form.formReasoningMode}
+                    onChange={e => setFormField('formReasoningMode', e.target.value as FormState['formReasoningMode'])}
+                  >
+                    <option value="none">None</option>
+                    <option value="auto">Auto (parse reasoning fields)</option>
+                    <option value="enabled">Enabled (no temperature)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Skill catalog</label>
+                  <select
+                    className="form-select"
+                    value={form.formSkillCatalogMode}
+                    onChange={e => setFormField('formSkillCatalogMode', e.target.value as FormState['formSkillCatalogMode'])}
+                  >
+                    <option value="names">Names only (cheap)</option>
+                    <option value="full">Full descriptions</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Top P (optional)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 0.95"
+                    value={form.formTopP}
+                    onChange={e => setFormField('formTopP', e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Tool result max chars</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    min={500}
+                    max={50000}
+                    value={form.formToolResultMaxChars}
+                    onChange={e => setFormField('formToolResultMaxChars', parseInt(e.target.value) || 4000)}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.formSupportsTemperature}
+                    onChange={e => setFormField('formSupportsTemperature', e.target.checked)}
+                  />
+                  Send temperature
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.formStrictAlternation}
+                    onChange={e => setFormField('formStrictAlternation', e.target.checked)}
+                  />
+                  Strict user/assistant alternation
+                </label>
+              </div>
+            </div>
+          )}
 
           <div className="form-actions">
             <button type="submit" className="btn-primary" id="model-submit-btn">

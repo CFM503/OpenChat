@@ -197,6 +197,21 @@ export class TaskManager {
     }
     return all;
   }
+
+  /**
+   * Append a log entry without changing status.
+   */
+  appendLog(taskId: string, message: string, level: TaskLog['level'] = 'info'): AgentTask {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const updated: AgentTask = {
+      ...task,
+      updatedAt: Date.now(),
+      logs: [...task.logs, { timestamp: Date.now(), message, level }],
+    };
+    this.tasks.set(taskId, updated);
+    return updated;
+  }
 }
 
 // --- Helpers ---

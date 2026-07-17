@@ -129,4 +129,136 @@ To bundle the optimized web assets for deployment:
 ```bash
 npm run build
 ```
-Build assets will be located in the `dist/` directory.
+Build assets will be located in the `dist/` directory. The backend can serve `dist/` when present (e.g. Docker).
+
+### 6. CLI
+```bash
+npm run openchat -- help
+npm run openchat -- serve
+npm run openchat -- chat "list TypeScript files in this project"
+npm run openchat -- health
+npm run openchat -- tools
+```
+
+### 7. Docker
+```bash
+docker compose up --build
+# Backend + tools on :3001, workspace mounted at /workspace
+```
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+,` | Settings |
+| `Ctrl+N` | New chat |
+| `Ctrl+B` | Toggle session sidebar |
+| `Ctrl+E` | Export chat as Markdown |
+| `Ctrl+S` | Save active file to disk |
+| `Esc` | Stop streaming |
+| `/` | Skill picker in chat input |
+
+---
+
+## 🌐 Multi-provider models (CN + global)
+
+Settings → **Add Model** lists domestic and international providers. Each route can set:
+
+| Setting | Why |
+|---------|-----|
+| **Context strategy** | `minimal` / `balanced` / `full` — controls history packing & token cost |
+| **Token param** | `max_tokens` vs `max_completion_tokens` (o1/o3) vs Ollama `num_predict` |
+| **API style** | OpenAI-compatible / Anthropic Messages / Ollama |
+| **Reasoning mode** | Skip temperature; parse `reasoning_content` |
+| **Auth style** | Bearer / Anthropic `x-api-key` / query key |
+| **Tool result max chars** | Truncate tool dumps in history |
+| **Skill catalog** | Names-only (cheap) vs full descriptions |
+
+**Token packer (automatic):** keeps system core + last user turn, fills newest turns until the history budget, truncates tool outputs, drops older turns into a stub, optionally LLM-summarizes when still over the compression threshold.
+
+## 🛠️ Agent Tools
+
+When the backend is running, the model can call:
+
+| Tool | Description |
+|------|-------------|
+| `bash` | Run shell commands (sandboxed, danger filters) |
+| `file_read` / `file_write` / `file_edit` | Project files with path jail |
+| `grep` / `glob` | Code search |
+| `git` | Read-only git ops |
+| `web_search` / `web_fetch` | Live web (search provider in Settings) |
+| `skill` | Load a Claude Code–style skill by name |
+| MCP / plugins | Extra tools from config / plugins |
+
+## ⚡ Skills & Plugins (Claude Code compatible)
+
+OpenChat loads the same **Agent Skills** layout as Claude Code:
+
+| Location | Path |
+|----------|------|
+| Personal | `~/.claude/skills/<name>/SKILL.md` or `~/.openchat/skills/<name>/SKILL.md` |
+| Project | `.claude/skills/<name>/SKILL.md` |
+| Commands | `.claude/commands/<name>.md` (legacy slash commands) |
+| Plugin | `<plugin>/skills/<name>/SKILL.md` → `/plugin:skill` |
+
+**Minimal skill:**
+
+```text
+~/.openchat/skills/my-skill/SKILL.md
+```
+
+```yaml
+---
+description: What this skill does and when to use it
+---
+Instructions for the agent…
+$ARGUMENTS
+```
+
+**Plugin package:**
+
+```text
+my-plugin/
+  .claude-plugin/plugin.json
+  skills/<name>/SKILL.md
+  commands/*.md          # optional
+  agents/*.md            # optional
+  .mcp.json              # optional MCP servers
+```
+
+Copy examples:
+
+```bash
+# Personal skill
+cp -r examples/skills/summarize-changes ~/.openchat/skills/
+
+# Claude-style plugin
+cp -r examples/plugins/team-conventions ~/.openchat/plugins/
+```
+
+Then `npm run openchat -- reload` (server running) or restart the backend.
+
+Type `/` in chat to pick skills, or let the agent call the `skill` tool. Project memory lives in `OPENCHAT.md` or `CLAUDE.md`.
+
+---
+
+## Roadmap
+
+Planned / optional next steps (not blocking 2.1.x):
+
+| Priority | Item | Notes |
+|----------|------|--------|
+| P1 | Task-based model routing | Explore/read with cheap model; coding with strong model |
+| P1 | React Context state store | Reduce hook prop drilling after further growth |
+| P2 | Hooks runtime for plugins | Full Claude Code–style lifecycle hooks |
+| P2 | Skill directory hot-reload | Watch `SKILL.md` without full restart |
+| P2 | Marketplace install UX polish | First-class Claude plugin marketplace sources |
+| P3 | E2E smoke tests | Playwright against `dev:all` |
+| P3 | Credential OS keychain | Optional encrypted key storage |
+| — | VS Code extension | **Out of scope** — prefer Claude Code–style plugins/skills |
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system layout and history.
+
+**Version:** 2.1.0 · **Last updated:** 2026-07-17

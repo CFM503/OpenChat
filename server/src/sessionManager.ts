@@ -83,12 +83,33 @@ export class SessionManager {
     fs.renameSync(tmpPath, filePath);
   }
 
-  update(id: string, messages: ChatMessage[]): void {
+  update(id: string, messages: ChatMessage[], title?: string): void {
     const session = this.get(id);
     if (session) {
       session.messages = messages;
+      if (title && title.trim()) {
+        session.title = title.trim().slice(0, 80);
+      } else if (
+        (session.title.startsWith('Session ') || session.title === 'New Chat') &&
+        messages.length > 0
+      ) {
+        // Auto-title from first user message
+        const firstUser = messages.find(m => m.role === 'user' && m.content?.trim());
+        if (firstUser) {
+          const t = firstUser.content.trim().replace(/\s+/g, ' ');
+          session.title = t.length > 48 ? t.slice(0, 48) + '…' : t;
+        }
+      }
       this.save(session);
     }
+  }
+
+  rename(id: string, title: string): boolean {
+    const session = this.get(id);
+    if (!session || !title.trim()) return false;
+    session.title = title.trim().slice(0, 80);
+    this.save(session);
+    return true;
   }
 
   list(): Session[] {

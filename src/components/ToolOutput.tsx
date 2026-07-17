@@ -20,6 +20,8 @@ const TOOL_ICONS: Record<string, string> = {
   grep: '🔍',
   glob: '📂',
   git: '🔀',
+  web_search: '🌐',
+  web_fetch: '📥',
 };
 
 function truncate(str: string, max: number): string {
@@ -35,6 +37,8 @@ function formatInput(toolName: string, input: string): string {
     if (toolName === 'grep' && parsed.pattern) return parsed.pattern;
     if (toolName === 'glob' && parsed.pattern) return parsed.pattern;
     if (toolName === 'git' && parsed.subcommand) return `git ${parsed.subcommand} ${parsed.args ?? ''}`.trim();
+    if (toolName === 'web_search' && parsed.query) return parsed.query;
+    if (toolName === 'web_fetch' && parsed.url) return parsed.url;
     return truncate(input, 80);
   } catch {
     return truncate(input, 80);

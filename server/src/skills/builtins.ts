@@ -1,115 +1,141 @@
 // ============================================================================
-// Skill System — Built-in Skills
+// Built-in Skills — Claude Code SKILL.md style (in-memory)
 // ============================================================================
 
 import type { Skill } from './types.js';
 
-export const BUILTIN_SKILLS: Skill[] = [
-  {
-    name: 'review-code',
-    description: '审查代码，发现 bug、安全漏洞和性能问题',
-    shortcut: '/review',
-    category: 'code',
+function builtin(
+  name: string,
+  description: string,
+  content: string,
+  extra?: Partial<Skill>,
+): Skill {
+  return {
+    id: `builtin:${name}`,
+    name,
+    description,
+    shortcut: `/${name}`,
+    source: 'builtin',
+    content,
+    disableModelInvocation: false,
+    userInvocable: true,
     builtin: true,
-    content: `请审查以下代码，重点关注：
+    category: extra?.category,
+    ...extra,
+  };
+}
+
+export const BUILTIN_SKILLS: Skill[] = [
+  builtin(
+    'review',
+    'Review code for bugs, security issues, and performance problems. Use when the user asks for a code review or to check quality.',
+    `请审查代码（用户选区或当前讨论的代码），重点关注：
 
 1. **潜在 Bug** — 逻辑错误、边界条件、空指针
-2. **安全漏洞** — 注入攻击、路径遍历、信息泄露
+2. **安全漏洞** — 注入、路径遍历、信息泄露
 3. **性能问题** — 不必要的循环、内存泄漏、N+1 查询
-4. **代码风格** — 命名规范、可读性、DRY 原则
+4. **代码风格** — 命名、可读性、DRY
 
-对每个发现的问题，给出：
-- 🔴 严重程度（Critical / High / Medium / Low）
-- 📍 位置（文件名和行号）
-- 💡 修复建议和示例代码
+对每个问题给出：严重程度、位置、修复建议与示例。
 
-{{selection}}`,
-  },
-  {
-    name: 'explain-code',
-    description: '解释代码的工作原理和设计意图',
-    shortcut: '/explain',
-    category: 'code',
-    builtin: true,
-    content: `请详细解释以下代码：
+{{selection}}
+$ARGUMENTS`,
+    { category: 'code' },
+  ),
+  builtin(
+    'explain',
+    'Explain how code works and its design intent. Use when the user asks what code does or how it works.',
+    `请详细解释以下代码：
 
-1. **整体功能** — 这段代码做什么？
-2. **执行流程** — 从输入到输出的完整路径
-3. **关键设计** — 使用了什么模式或算法？为什么这样选择？
-4. **依赖关系** — 依赖了哪些外部模块或 API？
-5. **注意事项** — 使用时需要注意的边界条件或陷阱
+1. **整体功能**
+2. **执行流程**
+3. **关键设计 / 模式**
+4. **依赖关系**
+5. **注意事项与边界条件**
 
-请用简洁清晰的语言，必要时用图表或示例辅助说明。
+{{selection}}
+$ARGUMENTS`,
+    { category: 'code' },
+  ),
+  builtin(
+    'test',
+    'Write unit tests for code. Use when the user asks for tests or coverage.',
+    `请为以下代码编写全面的单元测试：
 
-{{selection}}`,
-  },
-  {
-    name: 'write-tests',
-    description: '为代码编写单元测试',
-    shortcut: '/test',
-    category: 'test',
-    builtin: true,
-    content: `请为以下代码编写全面的单元测试：
+- 覆盖正常路径与边界条件
+- 测试错误处理
+- 使用项目现有测试框架
+- 每个用例有清晰描述
 
-**要求**：
-- 覆盖正常路径和边界条件
-- 测试错误处理和异常情况
-- 使用项目现有的测试框架
-- 每个测试用例有清晰的描述
-- 目标覆盖率 > 90%
+{{selection}}
+$ARGUMENTS`,
+    { category: 'test' },
+  ),
+  builtin(
+    'refactor',
+    'Refactor code for maintainability and performance. Use when the user asks to clean up or improve structure.',
+    `请分析并重构以下代码：
 
-**测试场景**：
-1. ✅ 正常输入 → 正确输出
-2. ⚠️ 边界值 — 空值、零值、极大值
-3. ❌ 错误输入 — 类型错误、格式错误
-4. 🔄 幂等性 — 重复调用结果一致
+评估：可读性、模块化、可复用性、性能、可测试性。
 
-{{selection}}`,
-  },
-  {
-    name: 'refactor-code',
-    description: '重构代码，提升可维护性和性能',
-    shortcut: '/refactor',
-    category: 'code',
-    builtin: true,
-    content: `请分析以下代码并给出重构建议：
+输出：问题列表、重构方案（完整代码）、前后对比、风险。
 
-**评估维度**：
-1. 📐 可读性 — 函数长度、命名清晰度、注释质量
-2. 🧩 模块化 — 职责单一、耦合度、内聚度
-3. ♻️ 可复用性 — 是否有重复逻辑可以抽取
-4. ⚡ 性能 — 是否有优化空间
-5. 🧪 可测试性 — 依赖注入、纯函数比例
+{{selection}}
+$ARGUMENTS`,
+    { category: 'code' },
+  ),
+  builtin(
+    'docs',
+    'Generate documentation and comments for code. Use when the user asks for docs or JSDoc/TSDoc.',
+    `请为以下代码生成完整文档：
 
-**输出格式**：
-- 当前问题列表（按优先级排序）
-- 重构方案（含完整代码）
-- 重构前后对比
-- 风险评估
+1. 模块/函数概述
+2. 参数与返回值
+3. 使用示例
+4. 注意事项
 
-{{selection}}`,
-  },
-  {
-    name: 'generate-docs',
-    description: '生成代码文档和注释',
-    shortcut: '/docs',
-    category: 'docs',
-    builtin: true,
-    content: `请为以下代码生成完整文档：
+优先使用项目文档约定（JSDoc/TSDoc/README）。
 
-**文档内容**：
-1. 📝 模块/函数概述
-2. 📋 参数说明（类型、必填、默认值）
-3. 📤 返回值说明
-4. 💡 使用示例
-5. ⚠️ 注意事项和限制
+{{selection}}
+$ARGUMENTS`,
+    { category: 'docs' },
+  ),
+  builtin(
+    'commit',
+    'Stage relevant files and create a well-structured git commit. Only invoke when the user asks to commit.',
+    `Create a git commit for the current changes.
 
-**格式要求**：
-- 使用 JSDoc / TSDoc 格式注释
-- 生成独立的 README 段落（如适用）
-- 包含至少 2 个使用示例
-- 标注版本要求和依赖
+## Steps
+1. Run \`git status\` and \`git diff\` (and \`git diff --staged\`)
+2. Analyze changes and draft a concise commit message (conventional commits if the repo uses them)
+3. Stage relevant files (not secrets, not .openchat with keys)
+4. Commit with a clear message
+5. Run \`git status\` to verify
 
-{{selection}}`,
-  },
+Do NOT push unless the user explicitly asks.
+
+$ARGUMENTS`,
+    {
+      category: 'git',
+      disableModelInvocation: true,
+    },
+  ),
+  builtin(
+    'pr-summary',
+    'Summarize the current pull request or branch diff. Use when the user asks about a PR or recent changes.',
+    `## Context
+
+Uncommitted and branch changes (if available):
+
+!\`git status -sb\`
+
+!\`git diff HEAD --stat\`
+
+## Task
+
+Summarize the changes in 2–5 bullets, list risks, and suggest a PR title.
+
+$ARGUMENTS`,
+    { category: 'git' },
+  ),
 ];

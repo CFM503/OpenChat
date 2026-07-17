@@ -5,6 +5,9 @@
 // --- Model Routing Types ---
 
 export type ModelProvider = 'openai' | 'ollama' | 'custom';
+export type ApiStyle = 'openai' | 'ollama' | 'anthropic';
+export type TokenParamStyle = 'max_tokens' | 'max_completion_tokens' | 'num_predict' | 'none';
+export type ContextStrategy = 'full' | 'balanced' | 'minimal';
 
 export interface ModelConfig {
   id: string;
@@ -17,7 +20,42 @@ export interface ModelConfig {
   temperature: number;
   isDefault: boolean;
   disableTools?: boolean;
-  useMaxTokens?: boolean;  // true = send max_tokens to API, false = let provider decide
+  /** @deprecated prefer tokenParam */
+  useMaxTokens?: boolean;
+
+  // Dialect & capabilities
+  apiStyle?: ApiStyle;
+  contextWindow?: number;
+  tokenParam?: TokenParamStyle;
+  supportsTemperature?: boolean;
+  supportsTools?: boolean;
+  supportsParallelToolCalls?: boolean;
+  supportsSystemRole?: boolean;
+  supportsVision?: boolean;
+  reasoningMode?: 'none' | 'enabled' | 'auto';
+  strictAlternation?: boolean;
+  maxHistoryMessages?: number;
+
+  // Sampling
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stopSequences?: string[];
+  seed?: number;
+
+  // Wire
+  extraHeaders?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
+  authStyle?: 'bearer' | 'anthropic-x-api-key' | 'query' | 'none';
+
+  // Token cost
+  contextStrategy?: ContextStrategy;
+  historyTokenBudget?: number;
+  toolResultMaxChars?: number;
+  compressionThreshold?: number;
+  memoryMaxChars?: number;
+  skillCatalogMode?: 'full' | 'names' | 'off';
 }
 
 // --- Chat Types ---
@@ -109,6 +147,18 @@ export interface WorkspaceFile {
   language: string;
   content: string;
   lastModified: number;
+  /** Relative path on disk (when opened from filesystem) */
+  filePath?: string;
+  /** Unsaved local edits */
+  dirty?: boolean;
+}
+
+export interface FsTreeEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  children?: FsTreeEntry[];
 }
 
 // --- Workspace Types ---
@@ -120,6 +170,13 @@ export interface SkillInfo {
   category?: string;
   builtin: boolean;
   content?: string;
+  /** Claude Code: personal | project | plugin | builtin | command */
+  source?: string;
+  pluginName?: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  argumentHint?: string;
+  whenToUse?: string;
 }
 
 // ── MCP Types ────────────────────────────────────────────────────────────────
@@ -138,6 +195,10 @@ export interface PluginInfo {
   description: string;
   author?: string;
   enabled: boolean;
+  /** claude | legacy | hybrid */
+  format?: string;
+  skills?: string[];
+  agents?: string[];
   tools: Array<{
     name: string;
     description: string;

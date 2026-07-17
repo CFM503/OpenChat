@@ -1,10 +1,11 @@
 // ============================================================================
-// WebSocket API Service — Connects frontend to backend gateway
+// WebSocket API Service �?Connects frontend to backend gateway
 // Falls back gracefully when backend is unavailable
 // ============================================================================
 
 import type { ChatMessage, ServerMessage, ClientMessage, ChatMessage as ServerChatMessage } from '../../server/src/types.js';
-import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo, ToolEvent } from '../core/types.js';
+import type { SkillInfo, MCPServerStatus, PluginInfo, RegistryPackageInfo, InstalledPackageInfo, ToolEvent, FsTreeEntry } from '../core/types.js';
+import { apiUrl, getWsUrl } from '../lib/apiBase.js';
 
 export type { ChatMessage, ServerMessage, ClientMessage };
 
@@ -12,6 +13,12 @@ interface StreamCallbacks {
   onContent: (text: string) => void;
   onThinking: (text: string) => void;
   onToolEvent: (event: ToolEvent) => void;
+  onPackStats?: (stats: {
+    estimatedTokens: number;
+    strategy: string;
+    keptMessages: number;
+    droppedMessages: number;
+  }) => void;
   onDone: () => void;
   onError: (message: string) => void;
 }
@@ -28,8 +35,8 @@ class BackendClient {
   private reconnectAttempts = 0;
   private connectingPromise: Promise<boolean> | null = null;  // H-12: Guard against concurrent connects
 
-  constructor(port: number = 3001) {
-    this.url = `ws://localhost:${port}/ws`;
+  constructor() {
+    this.url = getWsUrl();
   }
 
   /**
@@ -37,11 +44,21 @@ class BackendClient {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const resp = await fetch('http://localhost:3001/api/health', {
+      const resp = await fetch(apiUrl('/api/health'), {
         signal: AbortSignal.timeout(2000),
       });
       return resp.ok;
     } catch {
+      // Fallback direct port when Vite proxy not ready
+      try {
+        const resp = await fetch('http://localhost:3001/api/health', {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (resp.ok) {
+          this.url = 'ws://localhost:3001/ws';
+          return true;
+        }
+      } catch { /* ignore */ }
       return false;
     }
   }
@@ -51,7 +68,7 @@ class BackendClient {
    */
   async getHealth(): Promise<{ tools: string[]; canMakeRequest: boolean } | null> {
     try {
-      const resp = await fetch('http://localhost:3001/api/health', {
+      const resp = await fetch(apiUrl('/api/health'), {
         signal: AbortSignal.timeout(2000),
       });
       if (resp.ok) return resp.json();
@@ -140,6 +157,14 @@ class BackendClient {
           result: msg.result,
         });
         break;
+      case 'pack_stats':
+        this.callbacks.onPackStats?.({
+          estimatedTokens: msg.estimatedTokens,
+          strategy: msg.strategy,
+          keptMessages: msg.keptMessages,
+          droppedMessages: msg.droppedMessages,
+        });
+        break;
       case 'done':
         this.callbacks.onDone();
         break;
@@ -182,7 +207,7 @@ class BackendClient {
 
   async getSkills(): Promise<SkillInfo[]> {
     try {
-      const resp = await fetch('http://localhost:3001/api/skills', {
+      const resp = await fetch('/api/skills', {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) return resp.json();
@@ -190,13 +215,18 @@ class BackendClient {
     return [];
   }
 
-  async expandSkill(name: string, selection?: string): Promise<string | null> {
+  async expandSkill(
+    name: string,
+    selection?: string,
+    args?: string,
+  ): Promise<string | null> {
     try {
-      const resp = await fetch(`http://localhost:3001/api/skills/${encodeURIComponent(name)}/expand`, {
+      const resp = await fetch(`/api/skills/${encodeURIComponent(name)}/expand`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selection }),
-        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({ selection, arguments: args || '' }),
+        // Shell injection in skills may take longer
+        signal: AbortSignal.timeout(45000),
       });
       if (resp.ok) {
         const data = await resp.json() as { expanded: string };
@@ -206,11 +236,35 @@ class BackendClient {
     return null;
   }
 
+  async reloadSkills(): Promise<boolean> {
+    try {
+      const resp = await fetch('/api/skills/reload', {
+        method: 'POST',
+        signal: AbortSignal.timeout(15000),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async reloadPlugins(): Promise<boolean> {
+    try {
+      const resp = await fetch('/api/plugins/reload', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30000),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
   // ── MCP API ─────────────────────────────────────────────────────────────
 
   async getMCPServers(): Promise<MCPServerStatus[]> {
     try {
-      const resp = await fetch('http://localhost:3001/api/mcp/servers', {
+      const resp = await fetch('/api/mcp/servers', {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) return resp.json();
@@ -222,7 +276,7 @@ class BackendClient {
 
   async getPlugins(): Promise<PluginInfo[]> {
     try {
-      const resp = await fetch('http://localhost:3001/api/plugins', {
+      const resp = await fetch('/api/plugins', {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) return resp.json();
@@ -234,7 +288,7 @@ class BackendClient {
 
   async searchRegistry(query: string): Promise<RegistryPackageInfo[]> {
     try {
-      const resp = await fetch(`http://localhost:3001/api/registry/search?q=${encodeURIComponent(query)}`, {
+      const resp = await fetch(`/api/registry/search?q=${encodeURIComponent(query)}`, {
         signal: AbortSignal.timeout(10000),
       });
       if (resp.ok) {
@@ -247,7 +301,7 @@ class BackendClient {
 
   async installPackage(name: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const resp = await fetch('http://localhost:3001/api/registry/install', {
+      const resp = await fetch('/api/registry/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -261,7 +315,7 @@ class BackendClient {
 
   async uninstallPackage(name: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const resp = await fetch(`http://localhost:3001/api/registry/uninstall/${encodeURIComponent(name)}`, {
+      const resp = await fetch(`/api/registry/uninstall/${encodeURIComponent(name)}`, {
         method: 'DELETE',
         signal: AbortSignal.timeout(10000),
       });
@@ -273,7 +327,7 @@ class BackendClient {
 
   async getInstalledPackages(): Promise<InstalledPackageInfo[]> {
     try {
-      const resp = await fetch('http://localhost:3001/api/registry/installed', {
+      const resp = await fetch('/api/registry/installed', {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {
@@ -286,7 +340,7 @@ class BackendClient {
 
   async checkUpdates(): Promise<Array<{ name: string; current: string; latest: string }>> {
     try {
-      const resp = await fetch('http://localhost:3001/api/registry/updates', {
+      const resp = await fetch('/api/registry/updates', {
         signal: AbortSignal.timeout(15000),
       });
       if (resp.ok) {
@@ -301,7 +355,7 @@ class BackendClient {
 
   async getSessions(): Promise<Array<{ id: string; title: string; messages: ServerChatMessage[]; createdAt: number; updatedAt: number }>> {
     try {
-      const resp = await fetch('http://localhost:3001/api/sessions', {
+      const resp = await fetch('/api/sessions', {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) return resp.json();
@@ -311,7 +365,7 @@ class BackendClient {
 
   async createSession(title?: string): Promise<{ id: string } | null> {
     try {
-      const resp = await fetch('http://localhost:3001/api/sessions', {
+      const resp = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
@@ -322,20 +376,91 @@ class BackendClient {
     return null;
   }
 
-  async updateSession(id: string, messages: any[]): Promise<void> {
+  async updateSession(id: string, messages: any[], title?: string): Promise<void> {
     try {
-      await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+      await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, title }),
         signal: AbortSignal.timeout(5000),
       });
     } catch { /* ignore */ }
   }
 
+  async renameSession(id: string, title: string): Promise<boolean> {
+    try {
+      const resp = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+        signal: AbortSignal.timeout(5000),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Filesystem API ───────────────────────────────────────────────────────
+
+  async getFsTree(dirPath = '.', depth = 3): Promise<{ root: string; tree: FsTreeEntry[] } | null> {
+    try {
+      const resp = await fetch(
+        `/api/fs/tree?path=${encodeURIComponent(dirPath)}&depth=${depth}`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      if (resp.ok) return resp.json();
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  async readFsFile(filePath: string): Promise<{ path: string; content: string; language: string; size: number } | null> {
+    try {
+      const resp = await fetch(
+        `/api/fs/file?path=${encodeURIComponent(filePath)}`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      if (resp.ok) return resp.json();
+      const err = await resp.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    } catch (err: any) {
+      throw err;
+    }
+  }
+
+  async writeFsFile(filePath: string, content: string): Promise<{ path: string; size: number } | null> {
+    try {
+      const resp = await fetch('/api/fs/file', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, content }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (resp.ok) return resp.json();
+      const err = await resp.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    } catch (err: any) {
+      throw err;
+    }
+  }
+
+  async restartMCPServer(name: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const resp = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/restart`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await resp.json();
+      if (!resp.ok) return { success: false, error: data.error || `HTTP ${resp.status}` };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
   async deleteSession(id: string): Promise<void> {
     try {
-      await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+      await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         signal: AbortSignal.timeout(5000),
       });
@@ -344,7 +469,7 @@ class BackendClient {
 
   async getSession(id: string): Promise<{ id: string; title: string; messages: any[] } | null> {
     try {
-      const resp = await fetch(`http://localhost:3001/api/sessions/${encodeURIComponent(id)}`, {
+      const resp = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) return resp.json();

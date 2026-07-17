@@ -9,6 +9,15 @@ import * as registry from './tools/registry.js';
 import type { ToolContext } from './tools/types.js';
 import type { ServerMessage, ChatMessage, ToolCallResult } from './types.js';
 import { compressConversation } from './summarizer.js';
+import type { SkillManager } from './skills/loader.js';
+import { loadProjectMemory } from './memory/projectMemory.js';
+import {
+  packConversation,
+  packSkillCatalog,
+  formatPackStats,
+  estimateMessageTokens,
+} from './context/tokenBudget.js';
+import { resolveModelCaps } from './providers/resolveCaps.js';
 
 export interface AgentLoopParams {
   messages: ChatMessage[];
@@ -22,12 +31,28 @@ const CONTEXT_COMPRESSION_THRESHOLD = 0.85;
 
 export class AgentLoop {
   private compressedSummary: string | null = null;
+  private memoryCache: { dir: string; text: string; at: number } | null = null;
 
   constructor(
     private providers: ProviderGateway,
     private tools: typeof registry,
     private workingDirectory: string,
+    private skills?: SkillManager,
   ) {}
+
+  private async getProjectMemory(): Promise<string> {
+    const now = Date.now();
+    if (
+      this.memoryCache &&
+      this.memoryCache.dir === this.workingDirectory &&
+      now - this.memoryCache.at < 30_000
+    ) {
+      return this.memoryCache.text;
+    }
+    const text = await loadProjectMemory(this.workingDirectory);
+    this.memoryCache = { dir: this.workingDirectory, text, at: now };
+    return text;
+  }
 
   /**
    * Run the agent loop:
@@ -41,9 +66,14 @@ export class AgentLoop {
   async run(params: AgentLoopParams): Promise<void> {
     const { messages, modelId, signal, onEvent } = params;
 
-    // Check if tools are disabled for this model
     const model = this.providers.getActiveModel(modelId);
-    const toolsDisabled = model?.disableTools === true;
+    if (!model) {
+      onEvent({ type: 'error', message: 'No active model configured' });
+      onEvent({ type: 'done' });
+      return;
+    }
+    const caps = resolveModelCaps(model);
+    const toolsDisabled = model.disableTools === true || !caps.supportsTools;
     const toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
 
     // Build the messages array for the LLM (convert from our format)
@@ -128,6 +158,47 @@ export class AgentLoop {
       llmMessages.unshift({ role: 'user', content: 'Continue.' });
     }
 
+    // ── System parts (token-budgeted later) ──────────────────────────
+    const systemParts: string[] = [];
+    try {
+      let memory = await this.getProjectMemory();
+      if (memory && memory.length > caps.memoryMaxChars) {
+        memory = memory.slice(0, caps.memoryMaxChars) + '\n…[memory truncated for token budget]';
+      }
+      if (memory) systemParts.push(memory);
+    } catch {
+      // ignore
+    }
+    if (this.skills && caps.skillCatalogMode !== 'off') {
+      const entries = this.skills.getCatalog(true).map(e => ({
+        shortcut: e.shortcut,
+        name: e.name,
+        description: e.description,
+        whenToUse: e.whenToUse,
+      }));
+      const catalog = packSkillCatalog(
+        entries,
+        caps.skillCatalogMode,
+        caps.contextStrategy === 'minimal' ? 800 : 2000,
+      );
+      if (catalog) systemParts.push(catalog);
+    }
+    systemParts.push(
+      'You are OpenChat, an AI coding agent. Use tools to inspect and edit the workspace. ' +
+        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.',
+    );
+
+    // Pull any system messages already in conversation into systemParts
+    const convMessages: Record<string, any>[] = [];
+    for (const m of llmMessages) {
+      if (m.role === 'system') {
+        const c = typeof m.content === 'string' ? m.content : '';
+        if (c.trim()) systemParts.push(c);
+      } else {
+        convMessages.push(m);
+      }
+    }
+
     const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,
@@ -135,28 +206,75 @@ export class AgentLoop {
       abortSignal: signal ?? new AbortController().signal,
     };
 
-    // ── Compress context if it exceeds the threshold ─────────────────
-    if (model && llmMessages.length > 10) {
+    // ── Pack for token budget (cheap, no LLM) ────────────────────────
+    let packed = packConversation({
+      messages: convMessages,
+      systemParts,
+      model,
+      priorSummary: this.compressedSummary ?? undefined,
+    });
+    console.log(`[agentLoop] pack: ${formatPackStats(packed.stats)} est≈${packed.estimatedTokens}`);
+    onEvent({
+      type: 'pack_stats',
+      estimatedTokens: packed.estimatedTokens,
+      strategy: packed.stats.strategy,
+      keptMessages: packed.stats.keptMessages,
+      droppedMessages: packed.stats.droppedMessages,
+    });
+
+    // Optional LLM compression when still over threshold
+    // Prefer a cheaper "fast" model if configured via agentRouting
+    if (packed.needsLlmCompression && convMessages.length > 6) {
       try {
-        const result = await compressConversation(this.providers, model, llmMessages);
+        const cfg = (this.providers as any).config?.load?.() as
+          | { agentRouting?: { cheapModelId?: string } }
+          | undefined;
+        const cheapId = cfg?.agentRouting?.cheapModelId;
+        const summarizeModel =
+          (cheapId && this.providers.getActiveModel(cheapId)) || model;
+        const result = await compressConversation(this.providers, summarizeModel, convMessages);
         if (result.summary) {
           this.compressedSummary = result.summary;
-          llmMessages = [
-            { role: 'system', content: `Conversation summary:\n${result.summary}` },
-            ...result.recentMessages.map(m => ({ role: m.role, content: m.content })),
-          ];
+          packed = packConversation({
+            messages: result.recentMessages,
+            systemParts,
+            model,
+            priorSummary: result.summary,
+          });
+          console.log(`[agentLoop] after LLM compress: est≈${packed.estimatedTokens}`);
+          onEvent({
+            type: 'pack_stats',
+            estimatedTokens: packed.estimatedTokens,
+            strategy: packed.stats.strategy,
+            keptMessages: packed.stats.keptMessages,
+            droppedMessages: packed.stats.droppedMessages,
+          });
         }
       } catch (err: any) {
         console.warn('[agentLoop] Compression failed:', err.message);
-        // Fallback: hard truncate to last 40 messages
-        llmMessages = llmMessages.slice(-40);
       }
     }
+
+    let llmMessagesPacked = packed.messages;
 
     const MAX_ROUNDS = 10;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       if (signal?.aborted) break;
+
+      // Re-pack each round so tool dumps stay truncated
+      if (round > 0) {
+        const re = packConversation({
+          messages: llmMessagesPacked.filter(m => m.role !== 'system'),
+          systemParts,
+          model,
+          priorSummary: this.compressedSummary ?? undefined,
+        });
+        llmMessagesPacked = re.messages;
+        if (round === 1) {
+          console.log(`[agentLoop] round pack: est≈${re.estimatedTokens} tokens≈${llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0)}`);
+        }
+      }
 
       let responseContent = '';
       const toolCallsAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
@@ -164,7 +282,7 @@ export class AgentLoop {
       try {
         for await (const chunk of this.providers.streamCompletion({
           modelId,
-          messages: llmMessages as any,
+          messages: llmMessagesPacked as any,
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           signal,
         })) {
@@ -216,7 +334,7 @@ export class AgentLoop {
         onEvent({ type: 'done' });
         return;
       }
-      llmMessages.push({
+      llmMessagesPacked.push({
         role: 'assistant',
         content: responseContent,
         tool_calls: toolCalls.map(tc => ({
@@ -241,7 +359,7 @@ export class AgentLoop {
             duration: 0,
           };
           onEvent({ type: 'tool_result', toolCallId: tc.id, name: tc.name, result: errorResult });
-          llmMessages.push({
+          llmMessagesPacked.push({
             role: 'tool',
             tool_call_id: tc.id,
             content: JSON.stringify(errorResult),
@@ -274,6 +392,17 @@ export class AgentLoop {
             duration: 0,
           };
         }
+
+        // Cap tool output size immediately for cost control
+        if (result.output && result.output.length > caps.toolResultMaxChars) {
+          result = {
+            ...result,
+            output:
+              result.output.slice(0, caps.toolResultMaxChars) +
+              `\n…[truncated ${result.output.length - caps.toolResultMaxChars} chars]`,
+          };
+        }
+
         const toolResult: ToolCallResult = {
           toolCallId: tc.id,
           name: tc.name,
@@ -287,7 +416,7 @@ export class AgentLoop {
           result: toolResult,
         });
 
-        llmMessages.push({
+        llmMessagesPacked.push({
           role: 'tool',
           tool_call_id: tc.id,
           content: JSON.stringify({
