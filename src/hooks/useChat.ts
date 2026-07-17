@@ -73,6 +73,12 @@ export interface PackStats {
   strategy: string;
   keptMessages: number;
   droppedMessages: number;
+  truncatedTools?: number;
+  compressed?: boolean;
+  llmCompressed?: boolean;
+  summaryChars?: number;
+  summaryPreview?: string;
+  summary?: string;
 }
 
 const STALE_WARN_MS = 25_000;
@@ -558,6 +564,117 @@ export function useChat(opts: {
     setPhase('idle', '');
   }, [setPhase]);
 
+  /**
+   * Manual context compression: pack + optional LLM summary (no chat reply).
+   * Injects a system note so later turns keep the summary in outbound history.
+   */
+  const handleCompressContext = useCallback(async () => {
+    if (isStreaming) return;
+    if (!opts.backendAvailableRef.current || !backendClient.isConnected()) {
+      const reconnected = await backendClient.connect();
+      if (reconnected) opts.markAvailable();
+      if (!backendClient.isConnected()) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: uid('msg'),
+            role: 'system',
+            content: '⚠️ Backend offline — start server to compress context.',
+            timestamp: Date.now(),
+            ephemeral: true,
+          },
+        ]);
+        return;
+      }
+    }
+
+    const outbound = buildOutboundMessages(messagesRef.current);
+    if (outbound.filter(m => m.role === 'user' || m.role === 'assistant').length < 2) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: uid('msg'),
+          role: 'system',
+          content: 'ℹ️ Need more conversation history before compressing.',
+          timestamp: Date.now(),
+          ephemeral: true,
+        },
+      ]);
+      return;
+    }
+
+    setIsStreaming(true);
+    setPhase('packing', 'Compressing context…');
+    pipelineRef.current = [];
+    touchEvent();
+
+    let finalStats: PackStats | null = null;
+
+    const sent = await backendClient.compressContext(
+      outbound,
+      opts.activeModelId,
+      {
+        onPackStats: stats => {
+          touchEvent();
+          finalStats = stats;
+          setLastPackStats(stats);
+        },
+        onProgress: p => {
+          touchEvent();
+          applyServerProgress(p.stage, p.message, p.percent);
+        },
+        onDone: () => {
+          setIsStreaming(false);
+          setPhase('idle', '');
+          const s = finalStats as PackStats | null;
+          const detail = s
+            ? `~${s.estimatedTokens} tok · ${s.strategy}` +
+              (s.droppedMessages ? ` · dropped ${s.droppedMessages}` : '') +
+              (s.llmCompressed ? ' · LLM summary' : s.compressed ? ' · packed' : '')
+            : 'done';
+          const summaryBody =
+            s?.summary ||
+            (s?.summaryPreview ? s.summaryPreview : '');
+          setMessages(prev => [
+            ...prev,
+            {
+              id: uid('msg'),
+              role: 'system',
+              content:
+                `📦 **Context compressed** — ${detail}` +
+                (summaryBody
+                  ? `\n\n# Conversation summary (older turns)\n${summaryBody}`
+                  : ''),
+              timestamp: Date.now(),
+              // Keep summary in outbound history for next turns
+              ephemeral: false,
+            },
+          ]);
+        },
+        onError: message => {
+          setIsStreaming(false);
+          setPhase('error', message);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: uid('msg'),
+              role: 'system',
+              content: `⚠️ **Compress failed**: ${message}`,
+              timestamp: Date.now(),
+              ephemeral: true,
+            },
+          ]);
+        },
+      },
+      { forceCompress: true },
+    );
+
+    if (!sent) {
+      setIsStreaming(false);
+      setPhase('idle', '');
+    }
+  }, [isStreaming, opts, setPhase, touchEvent, applyServerProgress]);
+
   return {
     messages,
     setMessages,
@@ -570,6 +687,7 @@ export function useChat(opts: {
     handleStopStreaming,
     handleRetryMessage,
     handleExportChat,
+    handleCompressContext,
     resetToWelcome,
   };
 }

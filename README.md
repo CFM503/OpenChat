@@ -97,6 +97,21 @@ Navigate to the root directory and run:
 npm install
 ```
 
+### Terminal UI (TUI)
+
+Interactive full-screen chat in the terminal (no browser required):
+
+```bash
+npm run tui
+# or
+openchat tui
+openchat --tui --port 3001 --model <id>
+openchat tui --no-serve          # require backend already running
+openchat tui --no-thinking       # disable deep thinking / CoT
+```
+
+In-session: type to chat, `/help` for commands, Esc aborts a stream, Ctrl+C twice quits.
+
 ### 2. Run Tests
 Verify modules and state machines with the automated test suites:
 ```bash
@@ -193,7 +208,11 @@ Settings → **Add Model** lists domestic and international providers. Each rout
 | **Tool result max chars** | Truncate tool dumps in history |
 | **Skill catalog** | Names-only (cheap) vs full descriptions |
 
-**Token packer (automatic):** keeps system core + last user turn, fills newest turns until the history budget, truncates tool outputs, drops older turns into a stub, optionally LLM-summarizes when still over the compression threshold.
+**Token packer / context compression (Web + TUI):**
+
+- **Automatic** on every agent turn: keep system core + last user turn, fill newest history until budget, truncate tool outputs, drop older turns into a stub, optionally LLM-summarize when over the compression threshold (uses Settings → Routing → cheap model when set).
+- **Manual**: Web header **Compress** / chat footer zip button; TUI `/compress`.
+- Live stats via `pack_stats` (`~N tok`, strategy, dropped, `llm-zip` / packed).
 
 ## 🛠️ Agent Tools
 

@@ -58,9 +58,62 @@ export function attachWebSocketHandlers(
               messages: msg.messages,
               modelId: msg.modelId,
               enableThinking: msg.enableThinking,
+              forceCompress: msg.forceCompress,
               signal: currentAbort.signal,
               onEvent: (event) => {
                 if (ws.readyState === 1 /* OPEN */) {
+                  ws.send(JSON.stringify(event));
+                }
+              },
+            });
+          } catch (err: any) {
+            if (ws.readyState === 1) {
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: sanitizeError(err),
+                } satisfies ServerMessage),
+              );
+              ws.send(JSON.stringify({ type: 'done' } satisfies ServerMessage));
+            }
+          }
+          break;
+        }
+
+        case 'compress': {
+          if (currentAbort) currentAbort.abort();
+          currentAbort = new AbortController();
+
+          if (!rt.providers.canMakeRequest(msg.modelId)) {
+            ws.send(
+              JSON.stringify({
+                type: 'error',
+                message:
+                  'No API credentials configured. Use Settings to add a model, or use demo mode.',
+              } satisfies ServerMessage),
+            );
+            ws.send(JSON.stringify({ type: 'done' } satisfies ServerMessage));
+            break;
+          }
+
+          try {
+            if (ws.readyState === 1) {
+              ws.send(
+                JSON.stringify({
+                  type: 'progress',
+                  stage: 'received',
+                  message: '收到压缩请求…',
+                  percent: 5,
+                } satisfies ServerMessage),
+              );
+            }
+            await rt.agentLoop.compressOnly({
+              messages: msg.messages,
+              modelId: msg.modelId,
+              forceCompress: msg.forceCompress !== false,
+              signal: currentAbort.signal,
+              onEvent: (event) => {
+                if (ws.readyState === 1) {
                   ws.send(JSON.stringify(event));
                 }
               },

@@ -22,5 +22,6 @@ You can also use `CLAUDE.md` — both are supported.
 ```bash
 npm run dev:all
 npm run test:run
+npm run tui                  # interactive terminal UI (auto-starts backend)
 npm run openchat -- skills   # list skills (via health/tools after server start)
 ```

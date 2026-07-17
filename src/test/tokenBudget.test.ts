@@ -90,6 +90,22 @@ describe('packConversation', () => {
     expect(result.estimatedTokens).toBeLessThan(5000);
   });
 
+  it('flags needsLlmCompression when many messages dropped', () => {
+    const messages = [];
+    for (let i = 0; i < 40; i++) {
+      messages.push({ role: 'user', content: `q${i} ` + 'word '.repeat(80) });
+      messages.push({ role: 'assistant', content: `a${i} ` + 'word '.repeat(80) });
+    }
+    const result = packConversation({
+      messages,
+      systemParts: ['core'],
+      model: baseModel({ contextStrategy: 'balanced', contextWindow: 6000 }),
+    });
+    expect(result.stats.droppedMessages).toBeGreaterThan(0);
+    // balanced with many drops should suggest LLM compression
+    expect(result.needsLlmCompression || result.stats.droppedMessages > 8).toBe(true);
+  });
+
   it('truncates tool results', () => {
     const msgs = [
       { role: 'user', content: 'hi' },

@@ -37,7 +37,7 @@
 `resolveCaps` + `requestAdapter` handle OpenAI / Anthropic Messages / Ollama, CN vendors, reasoning models (`max_completion_tokens`, no temperature), system-role folding, auth styles.
 
 ### Version
-- **Current:** 2.3.0 (2026-07-17)
+- **Current:** 2.4.0 (2026-07-17)
 - Tags follow `vMAJOR.MINOR.PATCH` (and historical `v2.0.0-alpha.N`)
 
 ### Future work (see README Roadmap)
@@ -79,8 +79,8 @@ Task-based multi-model routing · React Context store · plugin hooks runtime ·
 │                        用户界面层（可多入口）                          │
 │                                                                      │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐  │
-│  │  Web UI (SPA) │   │  CLI (Ink)   │   │  VS Code Extension (opt) │  │
-│  │  React+Vite   │   │  Terminal UI │   │  WebView Panel           │  │
+│  │  Web UI (SPA) │   │  TUI (ANSI)  │   │  VS Code Extension (opt) │  │
+│  │  React+Vite   │   │  openchat tui│   │  WebView Panel           │  │
 │  └──────┬───────┘   └──────┬───────┘   └──────────┬───────────────┘  │
 │         │                  │                       │                  │
 │         └──────────────────┼───────────────────────┘                  │

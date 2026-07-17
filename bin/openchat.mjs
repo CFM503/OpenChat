@@ -4,6 +4,8 @@
  *
  * Usage:
  *   openchat serve [--port 3001] [--cwd PATH]
+ *   openchat tui [--port 3001] [--model ID] [--serve]
+ *   openchat --tui
  *   openchat chat "your prompt" [--model ID]
  *   openchat health
  *   openchat tools
@@ -29,6 +31,7 @@ OpenChat CLI — AI Coding Workspace
 
 Commands:
   serve [--port N] [--cwd PATH]   Start the backend gateway
+  tui [options]                   Interactive terminal UI (full-screen)
   chat <prompt> [--model ID]      One-shot agent chat via WebSocket
   health                          Check backend health
   tools                           List registered tools
@@ -37,6 +40,13 @@ Commands:
   reload                          Reload skills & plugins
   sessions                        List saved sessions
   help                            Show this help
+
+TUI options:
+  openchat tui
+  openchat tui --port 3001 --model <id> --no-thinking
+  openchat tui --serve            Auto-start backend if offline (default)
+  openchat tui --no-serve         Require an already-running backend
+  openchat --tui                  Same as openchat tui
 
 Skills (Claude Code compatible):
   ~/.claude/skills/<name>/SKILL.md
@@ -50,6 +60,7 @@ Plugins:
 
 Environment:
   OPENCHAT_PORT   Backend port (default 3001)
+  OPENCHAT_HOST   Backend host (default localhost)
   OPENCHAT_CWD    Working directory for tools
 `);
 }
@@ -89,14 +100,15 @@ async function cmdServe(argv) {
   if (checkCode !== 0) process.exit(checkCode ?? 1);
 
   const entry = path.join(ROOT, 'server', 'src', 'index.ts');
+  const tsxCli = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   console.log(`Starting OpenChat backend on :${port}`);
   console.log(`Working directory: ${cwd}`);
 
-  const child = spawn('npx', ['tsx', entry], {
+  const child = spawn(process.execPath, [tsxCli, entry], {
     cwd: ROOT,
     env,
     stdio: 'inherit',
-    shell: true,
+    shell: false,
   });
 
   child.on('exit', (code) => process.exit(code ?? 0));
@@ -254,11 +266,32 @@ async function cmdChat(argv) {
   });
 }
 
+async function cmdTui(argv) {
+  const entry = path.join(ROOT, 'cli', 'tui', 'index.ts');
+  const tsxCli = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const child = spawn(process.execPath, [tsxCli, entry, ...argv], {
+    cwd: ROOT,
+    env: process.env,
+    stdio: 'inherit',
+    shell: false,
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+}
+
 async function main() {
   try {
+    // Flag form: openchat --tui [...opts]
+    if (cmd === '--tui' || cmd === '-t') {
+      await cmdTui(args.slice(1));
+      return;
+    }
+
     switch (cmd) {
       case 'serve':
         await cmdServe(args.slice(1));
+        break;
+      case 'tui':
+        await cmdTui(args.slice(1));
         break;
       case 'chat':
         await cmdChat(args.slice(1));

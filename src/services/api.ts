@@ -16,16 +16,24 @@ export interface ProgressEvent {
   percent?: number;
 }
 
+export interface PackStatsPayload {
+  estimatedTokens: number;
+  strategy: string;
+  keptMessages: number;
+  droppedMessages: number;
+  truncatedTools?: number;
+  compressed?: boolean;
+  llmCompressed?: boolean;
+  summaryChars?: number;
+  summaryPreview?: string;
+  summary?: string;
+}
+
 interface StreamCallbacks {
   onContent: (text: string) => void;
   onThinking: (text: string) => void;
   onToolEvent: (event: ToolEvent) => void;
-  onPackStats?: (stats: {
-    estimatedTokens: number;
-    strategy: string;
-    keptMessages: number;
-    droppedMessages: number;
-  }) => void;
+  onPackStats?: (stats: PackStatsPayload) => void;
   onProgress?: (p: ProgressEvent) => void;
   onDone: () => void;
   onError: (message: string) => void;
@@ -171,6 +179,12 @@ class BackendClient {
           strategy: msg.strategy,
           keptMessages: msg.keptMessages,
           droppedMessages: msg.droppedMessages,
+          truncatedTools: msg.truncatedTools,
+          compressed: msg.compressed,
+          llmCompressed: msg.llmCompressed,
+          summaryChars: msg.summaryChars,
+          summaryPreview: msg.summaryPreview,
+          summary: msg.summary,
         });
         break;
       case 'progress':
@@ -197,7 +211,7 @@ class BackendClient {
     messages: ChatMessage[],
     modelId: string | undefined,
     callbacks: StreamCallbacks,
-    options?: { enableThinking?: boolean },
+    options?: { enableThinking?: boolean; forceCompress?: boolean },
   ): Promise<boolean> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       const ok = await this.connect();
@@ -211,6 +225,41 @@ class BackendClient {
       messages,
       modelId,
       enableThinking: options?.enableThinking,
+      forceCompress: options?.forceCompress,
+    };
+    this.ws!.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Run context pack + optional LLM compression without generating a reply.
+   */
+  async compressContext(
+    messages: ChatMessage[],
+    modelId: string | undefined,
+    callbacks: Pick<StreamCallbacks, 'onPackStats' | 'onProgress' | 'onDone' | 'onError'>,
+    options?: { forceCompress?: boolean },
+  ): Promise<boolean> {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      const ok = await this.connect();
+      if (!ok) return false;
+    }
+
+    this.callbacks = {
+      onContent: () => {},
+      onThinking: () => {},
+      onToolEvent: () => {},
+      onPackStats: callbacks.onPackStats,
+      onProgress: callbacks.onProgress,
+      onDone: callbacks.onDone,
+      onError: callbacks.onError,
+    };
+
+    const msg: ClientMessage = {
+      type: 'compress',
+      messages,
+      modelId,
+      forceCompress: options?.forceCompress !== false,
     };
     this.ws!.send(JSON.stringify(msg));
     return true;

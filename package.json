@@ -1,7 +1,7 @@
 {
   "name": "openchat",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.4.0",
   "type": "module",
   "bin": {
     "openchat": "./bin/openchat.mjs"
@@ -16,7 +16,8 @@
     "test": "vitest",
     "test:run": "vitest --run",
     "openchat": "node bin/openchat.mjs",
-    "serve": "node bin/openchat.mjs serve"
+    "serve": "node bin/openchat.mjs serve",
+    "tui": "node bin/openchat.mjs tui"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

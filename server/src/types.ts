@@ -46,6 +46,16 @@ export type ClientMessage =
       modelId?: string;
       /** When false, ask the provider to skip chain-of-thought / deep thinking */
       enableThinking?: boolean;
+      /** Force LLM history compression even if under threshold */
+      forceCompress?: boolean;
+    }
+  /** Run pack + optional LLM compress only (no model reply); for UI /compress */
+  | {
+      type: 'compress';
+      messages: ChatMessage[];
+      modelId?: string;
+      /** default true for manual compress */
+      forceCompress?: boolean;
     }
   | { type: 'abort' }
   | { type: 'ping' };
@@ -73,6 +83,18 @@ export type ServerMessage =
       strategy: string;
       keptMessages: number;
       droppedMessages: number;
+      /** Tool outputs truncated for budget */
+      truncatedTools?: number;
+      /** True when hard-drop or LLM summary reduced history */
+      compressed?: boolean;
+      /** True when an LLM summarizer pass ran successfully */
+      llmCompressed?: boolean;
+      /** Chars in rolling conversation summary (if any) */
+      summaryChars?: number;
+      /** Short preview of the summary for UI */
+      summaryPreview?: string;
+      /** Full summary text when LLM compress ran (for client history injection) */
+      summary?: string;
     }
   | {
       type: 'progress';

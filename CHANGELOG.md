@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+---
+
+## [2.4.0] - 2026-07-17
+
+### Added
+- **Interactive TUI** (`openchat tui` / `openchat --tui` / `npm run tui`)
+  - Full-screen ANSI terminal UI: multi-turn chat, streaming content, dim thinking, tool start/result, progress stages + percent bar
+  - Slash commands: `/help` `/clear` `/model` `/think` `/compress` `/abort` `/status` `/tools` `/skills` `/sessions` `/reload` `/quit`
+  - Keys: Enter send · Esc/Ctrl+C abort · Ctrl+C×2 quit · ↑↓ history · PgUp/PgDn scroll · Ctrl+L redraw
+  - Flags: `--port` `--host` `--model` `--cwd` `--serve`/`--no-serve` `--no-thinking`
+  - Default auto-starts backend when offline; source under `cli/tui/`
+- **Context compression (Web + TUI)** — end-to-end
+  - Auto: each chat turn packs history (token budget) + optional LLM summary when over threshold
+  - Manual: Web **Compress** button; TUI `/compress`
+  - WS `compress` message + richer `pack_stats` (`compressed`, `llmCompressed`, `summary`, dropped/kept/truncated)
+  - UI shows ~tok, pack/zip badge, dropped counts; injects summary system note for later turns
+
+### Fixed
+- Rolling summary no longer sticks globally across unrelated agent runs (per-request only)
+
+---
+
 ## [2.3.0] - 2026-07-17
 
 ### Added

@@ -194,15 +194,43 @@ export function App() {
               <span
                 className="logo-badge"
                 style={{ fontSize: '0.65rem', marginLeft: 8 }}
-                title={`strategy=${chat.lastPackStats.strategy} kept=${chat.lastPackStats.keptMessages} dropped=${chat.lastPackStats.droppedMessages}`}
+                title={
+                  `strategy=${chat.lastPackStats.strategy}` +
+                  ` kept=${chat.lastPackStats.keptMessages}` +
+                  ` dropped=${chat.lastPackStats.droppedMessages}` +
+                  (chat.lastPackStats.truncatedTools
+                    ? ` toolsTrunc=${chat.lastPackStats.truncatedTools}`
+                    : '') +
+                  (chat.lastPackStats.llmCompressed
+                    ? ' llmCompressed'
+                    : chat.lastPackStats.compressed
+                      ? ' packed'
+                      : '') +
+                  (chat.lastPackStats.summaryPreview
+                    ? `\n${chat.lastPackStats.summaryPreview}`
+                    : '')
+                }
               >
                 ~{chat.lastPackStats.estimatedTokens} tok
+                {chat.lastPackStats.llmCompressed
+                  ? ' · zip'
+                  : chat.lastPackStats.compressed
+                    ? ' · pack'
+                    : ''}
               </span>
             )}
           </div>
         </div>
 
         <div className="header-right">
+          <button
+            className="btn-ghost"
+            onClick={() => void chat.handleCompressContext()}
+            disabled={chat.isStreaming}
+            title="Compress conversation context (token budget + LLM summary)"
+          >
+            <span>Compress</span>
+          </button>
           <button className="btn-ghost" onClick={chat.handleExportChat} title="Export (Ctrl+E)">
             <span>Export</span>
           </button>
@@ -269,9 +297,18 @@ export function App() {
             onReconnect={backend.reconnect}
             packStatsLabel={
               chat.lastPackStats && !chat.isStreaming
-                ? `Last context ~${chat.lastPackStats.estimatedTokens} tok (${chat.lastPackStats.strategy})`
+                ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
+                  (chat.lastPackStats.droppedMessages
+                    ? ` · −${chat.lastPackStats.droppedMessages} msgs`
+                    : '') +
+                  (chat.lastPackStats.llmCompressed
+                    ? ' · LLM compressed'
+                    : chat.lastPackStats.compressed
+                      ? ' · packed'
+                      : '')
                 : null
             }
+            onCompressContext={chat.handleCompressContext}
           />
         </div>
 

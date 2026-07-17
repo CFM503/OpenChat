@@ -18,6 +18,7 @@ import {
   estimateMessageTokens,
 } from './context/tokenBudget.js';
 import { resolveModelCaps } from './providers/resolveCaps.js';
+import type { ModelConfig } from './providers/modelTypes.js';
 
 export interface AgentLoopParams {
   messages: ChatMessage[];
@@ -26,13 +27,20 @@ export interface AgentLoopParams {
   onEvent: (event: ServerMessage) => void;
   /** false = disable deep thinking for this run */
   enableThinking?: boolean;
+  /** Force LLM history compression even if under threshold */
+  forceCompress?: boolean;
 }
 
-/** Token limit threshold — compress when usage exceeds this percentage */
-const CONTEXT_COMPRESSION_THRESHOLD = 0.85;
+export interface CompressOnlyParams {
+  messages: ChatMessage[];
+  modelId?: string;
+  signal?: AbortSignal;
+  onEvent: (event: ServerMessage) => void;
+  /** default true for manual /compress */
+  forceCompress?: boolean;
+}
 
 export class AgentLoop {
-  private compressedSummary: string | null = null;
   private memoryCache: { dir: string; text: string; at: number } | null = null;
 
   constructor(
@@ -66,8 +74,51 @@ export class AgentLoop {
    *
    * Max 10 rounds to prevent infinite loops.
    */
+  /**
+   * Pack + optional LLM compress only (no agent reply). Used by Web/TUI /compress.
+   */
+  async compressOnly(params: CompressOnlyParams): Promise<void> {
+    const { messages, modelId, signal, onEvent, forceCompress = true } = params;
+    const model = this.providers.getActiveModel(modelId);
+    if (!model) {
+      onEvent({ type: 'error', message: 'No active model configured' });
+      onEvent({ type: 'done' });
+      return;
+    }
+
+    onEvent({
+      type: 'progress',
+      stage: 'received',
+      message: '开始上下文压缩…',
+      percent: 5,
+    });
+
+    try {
+      const prepared = await this.prepareConversation(messages, model, {
+        enableThinking: true,
+        onEvent,
+        signal,
+      });
+      if (signal?.aborted) {
+        onEvent({ type: 'done' });
+        return;
+      }
+      await this.packAndCompress({
+        convMessages: prepared.convMessages,
+        systemParts: prepared.systemParts,
+        model,
+        onEvent,
+        forceCompress,
+        signal,
+      });
+    } catch (err: any) {
+      onEvent({ type: 'error', message: err?.message || String(err) });
+    }
+    onEvent({ type: 'done' });
+  }
+
   async run(params: AgentLoopParams): Promise<void> {
-    const { messages, modelId, signal, onEvent, enableThinking } = params;
+    const { messages, modelId, signal, onEvent, enableThinking, forceCompress } = params;
 
     const model = this.providers.getActiveModel(modelId);
     if (!model) {
@@ -79,139 +130,12 @@ export class AgentLoop {
     const toolsDisabled = model.disableTools === true || !caps.supportsTools;
     const toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
 
-    // Build the messages array for the LLM (convert from our format)
-    let llmMessages: Record<string, any>[] = messages
-      .filter(m => m.role !== 'tool')
-      .map(m => {
-        const images = m.attachments?.filter(a => a.type.startsWith('image/')) ?? [];
-        const textAttachments = m.attachments?.filter(a => !a.type.startsWith('image/')) ?? [];
-
-        let content: string = m.content;
-
-        const textParts: string[] = [content];
-        for (const ta of textAttachments) {
-          textParts.push(`\n\n[Attached file: ${ta.name}]\n${ta.content}`);
-        }
-
-        if (images.length > 0) {
-          const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-            { type: 'text', text: textParts.join('') },
-          ];
-          for (const img of images) {
-            parts.push({
-              type: 'image_url',
-              image_url: { url: img.content },
-            });
-          }
-          return {
-            role: m.role,
-            content: parts,
-            ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
-              id: tc.id,
-              type: 'function',
-              function: { name: tc.name, arguments: tc.arguments },
-            }))}),
-          };
-        }
-
-        return {
-          role: m.role,
-          content: textParts.join(''),
-          ...(m.toolCalls?.length && { tool_calls: m.toolCalls.map(tc => ({
-            id: tc.id,
-            type: 'function',
-            function: { name: tc.name, arguments: tc.arguments },
-          }))}),
-        };
-      })
-      // Skip the welcome message — it's only for UI display, not part of the conversation
-      .filter((m, i, arr) => {
-        if (i === 0 && m.role === 'assistant' && m.content.includes('Welcome to')) return false;
-        return true;
-      });
-
-    // Sanitize messages: remove empty messages, ensure role alternation
-    llmMessages = llmMessages.filter(m => {
-      if (m.role === 'tool') return true;
-      if (m.role === 'assistant' && m.tool_calls?.length > 0) return true;
-      if (!m.content || (typeof m.content === 'string' && m.content.trim() === '')) return false;
-      return true;
+    const prepared = await this.prepareConversation(messages, model, {
+      enableThinking,
+      onEvent,
+      signal,
     });
-
-    // Ensure strict role alternation: merge consecutive same-role messages
-    const sanitized: Record<string, any>[] = [];
-    for (const msg of llmMessages) {
-      if (msg.role === 'tool') {
-        sanitized.push(msg);
-        continue;
-      }
-      const last = sanitized[sanitized.length - 1];
-      if (last && last.role === msg.role && last.role !== 'tool') {
-        if (typeof last.content === 'string' && typeof msg.content === 'string') {
-          last.content += '\n\n' + msg.content;
-        }
-      } else {
-        sanitized.push({ ...msg });
-      }
-    }
-    llmMessages = sanitized;
-
-    // Ensure first message is from user
-    if (llmMessages.length > 0 && llmMessages[0].role === 'assistant') {
-      llmMessages.unshift({ role: 'user', content: 'Continue.' });
-    }
-
-    // ── System parts (token-budgeted later) ──────────────────────────
-    onEvent({
-      type: 'progress',
-      stage: 'memory',
-      message: '加载项目说明与技能列表…',
-      percent: 15,
-    });
-
-    const systemParts: string[] = [];
-    try {
-      let memory = await this.getProjectMemory();
-      if (memory && memory.length > caps.memoryMaxChars) {
-        memory = memory.slice(0, caps.memoryMaxChars) + '\n…[memory truncated for token budget]';
-      }
-      if (memory) systemParts.push(memory);
-    } catch {
-      // ignore
-    }
-    if (this.skills && caps.skillCatalogMode !== 'off') {
-      const entries = this.skills.getCatalog(true).map(e => ({
-        shortcut: e.shortcut,
-        name: e.name,
-        description: e.description,
-        whenToUse: e.whenToUse,
-      }));
-      // Minimal strategy: names only + smaller budget → faster packing & fewer tokens
-      const catalog = packSkillCatalog(
-        entries,
-        caps.skillCatalogMode,
-        caps.contextStrategy === 'minimal' ? 600 : 2000,
-      );
-      if (catalog) systemParts.push(catalog);
-    }
-    systemParts.push(
-      'You are OpenChat, an AI coding agent. Use tools to inspect and edit the workspace. ' +
-        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.' +
-        (enableThinking === false
-          ? ' Be concise; do not narrate long internal reasoning.'
-          : ''),
-    );
-
-    // Pull any system messages already in conversation into systemParts
-    const convMessages: Record<string, any>[] = [];
-    for (const m of llmMessages) {
-      if (m.role === 'system') {
-        const c = typeof m.content === 'string' ? m.content : '';
-        if (c.trim()) systemParts.push(c);
-      } else {
-        convMessages.push(m);
-      }
-    }
+    const { convMessages, systemParts } = prepared;
 
     const sessionId = `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
@@ -220,74 +144,16 @@ export class AgentLoop {
       abortSignal: signal ?? new AbortController().signal,
     };
 
-    // ── Pack for token budget (cheap, no LLM) ────────────────────────
-    onEvent({
-      type: 'progress',
-      stage: 'packing',
-      message: '整理对话上下文（控制 token 成本）…',
-      percent: 30,
-    });
-
-    let packed = packConversation({
-      messages: convMessages,
+    const packResult = await this.packAndCompress({
+      convMessages,
       systemParts,
       model,
-      priorSummary: this.compressedSummary ?? undefined,
+      onEvent,
+      forceCompress: !!forceCompress,
+      signal,
     });
-    console.log(`[agentLoop] pack: ${formatPackStats(packed.stats)} est≈${packed.estimatedTokens}`);
-    onEvent({
-      type: 'pack_stats',
-      estimatedTokens: packed.estimatedTokens,
-      strategy: packed.stats.strategy,
-      keptMessages: packed.stats.keptMessages,
-      droppedMessages: packed.stats.droppedMessages,
-    });
-
-    // Optional LLM compression — skip when history is short or strategy is minimal
-    // (hard truncate already applied by packer; saves a full extra LLM round-trip)
-    const allowLlmCompress =
-      packed.needsLlmCompression &&
-      convMessages.length > 8 &&
-      caps.contextStrategy !== 'minimal';
-
-    if (allowLlmCompress) {
-      onEvent({
-        type: 'progress',
-        stage: 'compressing',
-        message: '对话较长，正在压缩历史（可能稍等）…',
-        percent: 40,
-      });
-      try {
-        const cfg = (this.providers as any).config?.load?.() as
-          | { agentRouting?: { cheapModelId?: string } }
-          | undefined;
-        const cheapId = cfg?.agentRouting?.cheapModelId;
-        const summarizeModel =
-          (cheapId && this.providers.getActiveModel(cheapId)) || model;
-        const result = await compressConversation(this.providers, summarizeModel, convMessages);
-        if (result.summary) {
-          this.compressedSummary = result.summary;
-          packed = packConversation({
-            messages: result.recentMessages,
-            systemParts,
-            model,
-            priorSummary: result.summary,
-          });
-          console.log(`[agentLoop] after LLM compress: est≈${packed.estimatedTokens}`);
-          onEvent({
-            type: 'pack_stats',
-            estimatedTokens: packed.estimatedTokens,
-            strategy: packed.stats.strategy,
-            keptMessages: packed.stats.keptMessages,
-            droppedMessages: packed.stats.droppedMessages,
-          });
-        }
-      } catch (err: any) {
-        console.warn('[agentLoop] Compression failed:', err.message);
-      }
-    }
-
-    let llmMessagesPacked = packed.messages;
+    let runSummary = packResult.runSummary;
+    let llmMessagesPacked = packResult.packed.messages;
 
     const MAX_ROUNDS = 10;
 
@@ -300,7 +166,7 @@ export class AgentLoop {
           messages: llmMessagesPacked.filter(m => m.role !== 'system'),
           systemParts,
           model,
-          priorSummary: this.compressedSummary ?? undefined,
+          priorSummary: runSummary,
         });
         llmMessagesPacked = re.messages;
         if (round === 1) {
@@ -509,5 +375,292 @@ export class AgentLoop {
     }
 
     onEvent({ type: 'done' });
+  }
+
+  // ── Context packing / compression (shared by chat + compress-only) ──
+
+  private toLlmMessages(messages: ChatMessage[]): Record<string, any>[] {
+    let llmMessages: Record<string, any>[] = messages
+      .filter(m => m.role !== 'tool')
+      .map(m => {
+        const images = m.attachments?.filter(a => a.type.startsWith('image/')) ?? [];
+        const textAttachments = m.attachments?.filter(a => !a.type.startsWith('image/')) ?? [];
+
+        const textParts: string[] = [m.content];
+        for (const ta of textAttachments) {
+          textParts.push(`\n\n[Attached file: ${ta.name}]\n${ta.content}`);
+        }
+
+        if (images.length > 0) {
+          const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+            { type: 'text', text: textParts.join('') },
+          ];
+          for (const img of images) {
+            parts.push({
+              type: 'image_url',
+              image_url: { url: img.content },
+            });
+          }
+          return {
+            role: m.role,
+            content: parts,
+            ...(m.toolCalls?.length && {
+              tool_calls: m.toolCalls.map(tc => ({
+                id: tc.id,
+                type: 'function',
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            }),
+          };
+        }
+
+        return {
+          role: m.role,
+          content: textParts.join(''),
+          ...(m.toolCalls?.length && {
+            tool_calls: m.toolCalls.map(tc => ({
+              id: tc.id,
+              type: 'function',
+              function: { name: tc.name, arguments: tc.arguments },
+            })),
+          }),
+        };
+      })
+      .filter((m, i) => {
+        if (i === 0 && m.role === 'assistant' && typeof m.content === 'string' && m.content.includes('Welcome to')) {
+          return false;
+        }
+        return true;
+      });
+
+    llmMessages = llmMessages.filter(m => {
+      if (m.role === 'tool') return true;
+      if (m.role === 'assistant' && m.tool_calls?.length > 0) return true;
+      if (!m.content || (typeof m.content === 'string' && m.content.trim() === '')) return false;
+      return true;
+    });
+
+    const sanitized: Record<string, any>[] = [];
+    for (const msg of llmMessages) {
+      if (msg.role === 'tool') {
+        sanitized.push(msg);
+        continue;
+      }
+      const last = sanitized[sanitized.length - 1];
+      if (last && last.role === msg.role && last.role !== 'tool') {
+        if (typeof last.content === 'string' && typeof msg.content === 'string') {
+          last.content += '\n\n' + msg.content;
+        }
+      } else {
+        sanitized.push({ ...msg });
+      }
+    }
+    llmMessages = sanitized;
+
+    if (llmMessages.length > 0 && llmMessages[0].role === 'assistant') {
+      llmMessages.unshift({ role: 'user', content: 'Continue.' });
+    }
+    return llmMessages;
+  }
+
+  private async prepareConversation(
+    messages: ChatMessage[],
+    model: ModelConfig,
+    opts: {
+      enableThinking?: boolean;
+      onEvent: (event: ServerMessage) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<{ convMessages: Record<string, any>[]; systemParts: string[] }> {
+    const caps = resolveModelCaps(model);
+    const llmMessages = this.toLlmMessages(messages);
+
+    opts.onEvent({
+      type: 'progress',
+      stage: 'memory',
+      message: '加载项目说明与技能列表…',
+      percent: 15,
+    });
+
+    const systemParts: string[] = [];
+    try {
+      let memory = await this.getProjectMemory();
+      if (memory && memory.length > caps.memoryMaxChars) {
+        memory = memory.slice(0, caps.memoryMaxChars) + '\n…[memory truncated for token budget]';
+      }
+      if (memory) systemParts.push(memory);
+    } catch {
+      /* ignore */
+    }
+
+    if (this.skills && caps.skillCatalogMode !== 'off') {
+      const entries = this.skills.getCatalog(true).map(e => ({
+        shortcut: e.shortcut,
+        name: e.name,
+        description: e.description,
+        whenToUse: e.whenToUse,
+      }));
+      const catalog = packSkillCatalog(
+        entries,
+        caps.skillCatalogMode,
+        caps.contextStrategy === 'minimal' ? 600 : 2000,
+      );
+      if (catalog) systemParts.push(catalog);
+    }
+
+    systemParts.push(
+      'You are OpenChat, an AI coding agent. Use tools to inspect and edit the workspace. ' +
+        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.' +
+        (opts.enableThinking === false
+          ? ' Be concise; do not narrate long internal reasoning.'
+          : ''),
+    );
+
+    // Extract prior client-side summary notes + system injections
+    const convMessages: Record<string, any>[] = [];
+    for (const m of llmMessages) {
+      if (m.role === 'system') {
+        const c = typeof m.content === 'string' ? m.content : '';
+        if (c.trim()) systemParts.push(c);
+      } else {
+        convMessages.push(m);
+      }
+    }
+
+    return { convMessages, systemParts };
+  }
+
+  private emitPackStats(
+    onEvent: (e: ServerMessage) => void,
+    packed: ReturnType<typeof packConversation>,
+    extra?: {
+      llmCompressed?: boolean;
+      summary?: string;
+    },
+  ): void {
+    const compressed =
+      packed.stats.droppedMessages > 0 ||
+      packed.stats.truncatedTools > 0 ||
+      !!extra?.llmCompressed ||
+      !!extra?.summary;
+    const summary = extra?.summary || '';
+    onEvent({
+      type: 'pack_stats',
+      estimatedTokens: packed.estimatedTokens,
+      strategy: packed.stats.strategy,
+      keptMessages: packed.stats.keptMessages,
+      droppedMessages: packed.stats.droppedMessages,
+      truncatedTools: packed.stats.truncatedTools,
+      compressed,
+      llmCompressed: !!extra?.llmCompressed,
+      summaryChars: summary ? summary.length : 0,
+      summaryPreview: summary
+        ? summary.replace(/\s+/g, ' ').slice(0, 160) + (summary.length > 160 ? '…' : '')
+        : undefined,
+      // Cap full summary on wire to keep WS payloads bounded
+      summary: summary
+        ? summary.length > 6000
+          ? summary.slice(0, 6000) + '\n…[summary truncated for client]'
+          : summary
+        : undefined,
+    });
+  }
+
+  private async packAndCompress(opts: {
+    convMessages: Record<string, any>[];
+    systemParts: string[];
+    model: ModelConfig;
+    onEvent: (event: ServerMessage) => void;
+    forceCompress: boolean;
+    signal?: AbortSignal;
+  }): Promise<{
+    packed: ReturnType<typeof packConversation>;
+    runSummary?: string;
+  }> {
+    const { convMessages, systemParts, model, onEvent, forceCompress, signal } = opts;
+    const caps = resolveModelCaps(model);
+
+    onEvent({
+      type: 'progress',
+      stage: 'packing',
+      message: '整理对话上下文（控制 token 成本）…',
+      percent: 30,
+    });
+
+    let packed = packConversation({
+      messages: convMessages,
+      systemParts,
+      model,
+    });
+    console.log(`[agentLoop] pack: ${formatPackStats(packed.stats)} est≈${packed.estimatedTokens}`);
+    this.emitPackStats(onEvent, packed);
+
+    // LLM compression: auto when packer signals, or forced by client
+    const allowLlmCompress =
+      forceCompress ||
+      (packed.needsLlmCompression &&
+        convMessages.length > 6 &&
+        caps.contextStrategy !== 'minimal');
+
+    // When forceCompress + minimal, still allow LLM compress for explicit /compress
+    const allowForced =
+      forceCompress && convMessages.length >= 4;
+
+    let runSummary: string | undefined;
+
+    if ((allowLlmCompress || allowForced) && !signal?.aborted) {
+      if (caps.contextStrategy === 'minimal' && !forceCompress) {
+        // hard truncate only
+      } else {
+        onEvent({
+          type: 'progress',
+          stage: 'compressing',
+          message: forceCompress
+            ? '手动压缩历史上下文…'
+            : '对话较长，正在压缩历史（可能稍等）…',
+          percent: 40,
+        });
+        try {
+          const cfg = (this.providers as any).config?.load?.() as
+            | { agentRouting?: { cheapModelId?: string } }
+            | undefined;
+          const cheapId = cfg?.agentRouting?.cheapModelId;
+          const summarizeModel =
+            (cheapId && this.providers.getActiveModel(cheapId)) || model;
+          const result = await compressConversation(
+            this.providers,
+            summarizeModel,
+            convMessages,
+          );
+          if (result.summary) {
+            runSummary = result.summary;
+            packed = packConversation({
+              messages: result.recentMessages,
+              systemParts,
+              model,
+              priorSummary: result.summary,
+            });
+            console.log(`[agentLoop] after LLM compress: est≈${packed.estimatedTokens}`);
+            this.emitPackStats(onEvent, packed, {
+              llmCompressed: true,
+              summary: result.summary,
+            });
+          } else {
+            // No summary text — still report final pack (hard drop may apply)
+            this.emitPackStats(onEvent, packed, { llmCompressed: false });
+          }
+        } catch (err: any) {
+          console.warn('[agentLoop] Compression failed:', err.message);
+          onEvent({
+            type: 'progress',
+            stage: 'packing',
+            message: `压缩失败，使用截断策略：${err.message?.slice(0, 80) || 'error'}`,
+            percent: 45,
+          });
+        }
+      }
+    }
+
+    return { packed, runSummary };
   }
 }
