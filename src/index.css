@@ -29,6 +29,19 @@
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: bold; }
 
+/* Density: code blocks a bit tighter in chat */
+.message-bubble pre {
+  margin: 0.4em 0;
+  line-height: 1.4;
+}
+
+.message-bubble pre code.hljs,
+.message-bubble .hljs {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 /* --- Reset & Base Setup --- */
 * {
   box-sizing: border-box;
@@ -361,7 +374,7 @@ body {
 }
 
 .chat-header {
-  padding: 16px 24px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
@@ -370,15 +383,16 @@ body {
 
 .chat-header h3 {
   font-weight: 600;
+  font-size: 0.95rem;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 
 /* Scrollbar Customization */
@@ -424,10 +438,10 @@ body {
 }
 
 .message-bubble {
-  padding: 14px 18px;
+  padding: 10px 14px;
   border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  line-height: 1.5;
+  font-size: 0.9rem;
+  line-height: 1.45;
   box-shadow: var(--shadow-sm);
 }
 
@@ -462,13 +476,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: none;
   color: #a5b4fc;
-  margin: -2px 0 10px;
-  padding-bottom: 8px;
+  margin: 0 0 6px;
+  padding-bottom: 6px;
   border-bottom: 1px solid rgba(99, 102, 241, 0.2);
 }
 
@@ -492,11 +506,11 @@ body {
 }
 
 .message-info {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
-  margin-top: 6px;
+  margin-top: 4px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .user .message-info {
@@ -529,7 +543,7 @@ body {
 /* --- Thinking block (collapsible) — muted amber, distinct from answer --- */
 
 .thinking-block {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid rgba(245, 158, 11, 0.28);
@@ -548,14 +562,14 @@ body {
 }
 
 .thinking-header {
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: rgba(245, 158, 11, 0.08);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #fbbf24;
 }
@@ -608,14 +622,14 @@ body {
 }
 
 .thinking-content {
-  padding: 12px 14px;
+  padding: 8px 12px;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  line-height: 1.55;
+  font-size: 0.75rem;
+  line-height: 1.4;
   color: #d6d3d1; /* stone — dimmer than primary reply text */
   border-top: 1px solid rgba(245, 158, 11, 0.18);
   white-space: pre-wrap;
-  max-height: min(280px, 40vh);
+  max-height: min(220px, 32vh);
   overflow-y: auto;
   overflow-x: hidden;
   background: rgba(0, 0, 0, 0.28);
@@ -642,7 +656,7 @@ body {
 .message-bubble-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   max-width: 100%;
 }
 
@@ -1014,7 +1028,7 @@ body {
 /* --- Chat Input --- */
 
 .chat-input-area {
-  padding: 20px 24px;
+  padding: 12px 16px;
   border-top: 1px solid var(--border-color);
 }
 
@@ -1023,10 +1037,10 @@ body {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 12px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   transition: border-color var(--transition-fast);
 }
 
@@ -1041,10 +1055,10 @@ body {
   outline: none;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   resize: none;
-  height: 60px;
-  line-height: 1.5;
+  height: 48px;
+  line-height: 1.45;
   width: 100%;
 }
 
@@ -1897,13 +1911,13 @@ pre:hover .code-copy-btn {
 .chat-activity {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 16px 6px;
-  font-size: 12px;
+  gap: 2px;
+  padding: 6px 14px 4px;
+  font-size: 11.5px;
   color: var(--text-secondary);
   background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), transparent);
   border-bottom: 1px solid var(--border-color);
-  min-height: 32px;
+  min-height: 28px;
 }
 
 .chat-activity.idle {
@@ -2545,28 +2559,42 @@ pre:hover .code-copy-btn {
 
 .message-bubble h1, .message-bubble h2, .message-bubble h3,
 .message-bubble h4, .message-bubble h5, .message-bubble h6 {
-  margin: 16px 0 8px 0;
+  margin: 10px 0 4px 0;
   line-height: 1.3;
   color: var(--text-primary);
 }
 
-.message-bubble h1 { font-size: 1.4em; }
-.message-bubble h2 { font-size: 1.2em; }
-.message-bubble h3 { font-size: 1.1em; }
+.message-bubble h1:first-child,
+.message-bubble h2:first-child,
+.message-bubble h3:first-child {
+  margin-top: 0;
+}
+
+.message-bubble h1 { font-size: 1.25em; }
+.message-bubble h2 { font-size: 1.12em; }
+.message-bubble h3 { font-size: 1.05em; }
 
 .message-bubble p {
-  margin: 8px 0;
-  line-height: 1.7;
+  margin: 0.35em 0;
+  line-height: 1.5;
+}
+
+.message-bubble p:first-child {
+  margin-top: 0;
+}
+
+.message-bubble p:last-child {
+  margin-bottom: 0;
 }
 
 .message-bubble ul, .message-bubble ol {
-  margin: 8px 0;
-  padding-left: 24px;
+  margin: 0.35em 0;
+  padding-left: 1.35em;
 }
 
 .message-bubble li {
-  margin: 4px 0;
-  line-height: 1.6;
+  margin: 0.15em 0;
+  line-height: 1.45;
 }
 
 .message-bubble a {
@@ -2579,8 +2607,8 @@ pre:hover .code-copy-btn {
 }
 
 .message-bubble blockquote {
-  margin: 8px 0;
-  padding: 8px 16px;
+  margin: 0.4em 0;
+  padding: 6px 12px;
   border-left: 3px solid var(--color-primary);
   background: rgba(99, 102, 241, 0.05);
   border-radius: 0 6px 6px 0;
@@ -2588,21 +2616,21 @@ pre:hover .code-copy-btn {
 }
 
 .message-bubble hr {
-  margin: 16px 0;
+  margin: 10px 0;
   border: none;
   border-top: 1px solid var(--border-color);
 }
 
 .message-bubble table {
   border-collapse: collapse;
-  margin: 8px 0;
+  margin: 0.4em 0;
   width: 100%;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .message-bubble th, .message-bubble td {
   border: 1px solid var(--border-color);
-  padding: 6px 12px;
+  padding: 4px 8px;
   text-align: left;
 }
 

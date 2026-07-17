@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.3] - 2026-07-17
+
+### Fixed
+- **Markdown tables showing `[object Object]`**: Marked v18 table renderer was stringifying cell token objects; now parses header/rows into real `<th>`/`<td>` HTML
+- **Markdown renderer hardening** (`src/lib/markdown.ts`): safe token→string for code/link/image/table; leak detector fallback; ToolOutput avoids `[object Object]` for object args
+
+### Changed
+- **Chat density**: slightly tighter message gaps, bubble padding, and markdown line-height so more content fits on screen without feeling cramped
+
+---
+
 ## [2.5.2] - 2026-07-17
 
 ### Added

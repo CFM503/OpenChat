@@ -3,49 +3,12 @@
 // ============================================================================
 
 import React, { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
-import { Marked } from 'marked';
-import hljs from 'highlight.js/lib/core';
-import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
-import python from 'highlight.js/lib/languages/python';
-import json from 'highlight.js/lib/languages/json';
-import bash from 'highlight.js/lib/languages/bash';
-import css from 'highlight.js/lib/languages/css';
-import html from 'highlight.js/lib/languages/xml';
-import rust from 'highlight.js/lib/languages/rust';
-import go from 'highlight.js/lib/languages/go';
-import java from 'highlight.js/lib/languages/java';
-import sql from 'highlight.js/lib/languages/sql';
-import yaml from 'highlight.js/lib/languages/yaml';
-import markdown from 'highlight.js/lib/languages/markdown';
-
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('js', javascript);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('ts', typescript);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('py', python);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('sh', bash);
-hljs.registerLanguage('shell', bash);
-hljs.registerLanguage('css', css);
-hljs.registerLanguage('html', html);
-hljs.registerLanguage('xml', html);
-hljs.registerLanguage('rust', rust);
-hljs.registerLanguage('go', go);
-hljs.registerLanguage('java', java);
-hljs.registerLanguage('sql', sql);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('yml', yaml);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('md', markdown);
-
 import type { ChatMessage, ChatAttachment, SkillInfo, ChatActivity } from '../core/types';
 import { ToolOutput } from './ToolOutput';
 import { SkillPicker } from './SkillPicker';
 import { ReplyCanvas } from './ReplyCanvas';
 import { parseContentSegments } from '../lib/replyCanvas';
+import { renderMarkdownCached } from '../lib/markdown';
 import { backendClient } from '../services/api';
 import type { ConnectionState } from '../hooks/useBackend';
 
@@ -67,74 +30,6 @@ interface ChatPanelProps {
   packStatsLabel?: string | null;
   /** Manual context compression (pack + LLM summary) */
   onCompressContext?: () => void;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Full markdown + syntax highlight (finished messages only) */
-const markedFull = new Marked({
-  renderer: {
-    code({ text, lang }: { text: string; lang?: string }) {
-      let language = lang || 'text';
-      if (!hljs.getLanguage(language)) language = 'text';
-      // Never use highlightAuto — very expensive on long streams
-      const highlighted = language !== 'text'
-        ? hljs.highlight(text, { language, ignoreIllegals: true }).value
-        : escapeHtml(text);
-      return `<div class="code-block-wrapper"><pre><code class="hljs language-${language}">${highlighted}</code></pre><button class="code-copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},2000)})">Copy</button></div>`;
-    },
-    link({ href, text }: { href: string; text: string }) {
-      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
-    },
-    table(token: any) {
-      return `<div class="table-wrapper"><table><thead>${token.header}</thead><tbody>${token.body}</tbody></table></div>`;
-    },
-  },
-});
-
-/** Cheap path while streaming: escape + basic newlines, skip hljs entirely */
-function renderMarkdownFast(content: string): string {
-  if (!content) return '';
-  // Preserve fenced code as plain <pre> without highlight
-  const withCode = content.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
-    return `<div class="code-block-wrapper"><pre><code class="hljs">${escapeHtml(code)}</code></pre></div>`;
-  });
-  return withCode
-    .split(/\n\n+/)
-    .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br/>')}</p>`)
-    .join('');
-}
-
-function renderMarkdown(content: string, fast = false): string {
-  if (!content) return '';
-  if (fast) return renderMarkdownFast(content);
-  try {
-    return markedFull.parse(content) as string;
-  } catch {
-    return renderMarkdownFast(content);
-  }
-}
-
-const markdownCache = new Map<string, string>();
-const MARKDOWN_CACHE_MAX = 80;
-
-function renderMarkdownCached(content: string, streaming: boolean): string {
-  if (streaming) return renderMarkdown(content, true);
-  const hit = markdownCache.get(content);
-  if (hit) return hit;
-  const html = renderMarkdown(content, false);
-  if (markdownCache.size > MARKDOWN_CACHE_MAX) {
-    const first = markdownCache.keys().next().value;
-    if (first !== undefined) markdownCache.delete(first);
-  }
-  markdownCache.set(content, html);
-  return html;
 }
 
 function CollapsibleThinking({

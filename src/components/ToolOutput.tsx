@@ -32,14 +32,30 @@ function truncate(str: string, max: number): string {
 function formatInput(toolName: string, input: string): string {
   try {
     const parsed = JSON.parse(input);
-    if (toolName === 'bash' && parsed.command) return parsed.command;
-    if ((toolName === 'file_read' || toolName === 'file_write' || toolName === 'file_edit') && parsed.path) return parsed.path;
-    if (toolName === 'grep' && parsed.pattern) return parsed.pattern;
-    if (toolName === 'glob' && parsed.pattern) return parsed.pattern;
-    if (toolName === 'git' && parsed.subcommand) return `git ${parsed.subcommand} ${parsed.args ?? ''}`.trim();
-    if (toolName === 'web_search' && parsed.query) return parsed.query;
-    if (toolName === 'web_fetch' && parsed.url) return parsed.url;
-    return truncate(input, 80);
+    if (toolName === 'bash' && parsed.command) return String(parsed.command);
+    if ((toolName === 'file_read' || toolName === 'file_write' || toolName === 'file_edit') && parsed.path) {
+      return String(parsed.path);
+    }
+    if (toolName === 'grep' && parsed.pattern) return String(parsed.pattern);
+    if (toolName === 'glob' && parsed.pattern) return String(parsed.pattern);
+    if (toolName === 'git' && parsed.subcommand) {
+      const args =
+        typeof parsed.args === 'string'
+          ? parsed.args
+          : Array.isArray(parsed.args)
+            ? parsed.args.map(String).join(' ')
+            : parsed.args != null && typeof parsed.args === 'object'
+              ? JSON.stringify(parsed.args)
+              : '';
+      return `git ${parsed.subcommand}${args ? ' ' + args : ''}`.trim();
+    }
+    if (toolName === 'web_search' && parsed.query) return String(parsed.query);
+    if (toolName === 'web_fetch' && parsed.url) return String(parsed.url);
+    // Avoid "[object Object]" if residual values are objects
+    return truncate(
+      typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed),
+      80,
+    );
   } catch {
     return truncate(input, 80);
   }
