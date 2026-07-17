@@ -110,9 +110,105 @@ export function useChat(opts: {
   const activityPhaseRef = useRef(activity.phase);
   activityPhaseRef.current = activity.phase;
 
-  const setPhase = useCallback((phase: ChatActivity['phase'], label: string, detail?: string) => {
-    setActivity({ phase, label, detail, startedAt: Date.now() });
-  }, []);
+  const pipelineRef = useRef<Array<{ stage: string; label: string; done: boolean; active: boolean }>>([]);
+
+  const STAGE_ORDER = [
+    'received',
+    'memory',
+    'packing',
+    'compressing',
+    'model',
+    'thinking',
+    'tools',
+    'generating',
+  ] as const;
+
+  const STAGE_LABELS: Record<string, string> = {
+    received: '接收',
+    memory: '记忆',
+    packing: '整理',
+    compressing: '压缩',
+    model: '模型',
+    thinking: '思考',
+    tools: '工具',
+    generating: '生成',
+  };
+
+  const setPhase = useCallback(
+    (phase: ChatActivity['phase'], label: string, detail?: string, percent?: number) => {
+      setActivity({
+        phase,
+        label,
+        detail,
+        startedAt: Date.now(),
+        percent,
+        pipeline: pipelineRef.current.length ? [...pipelineRef.current] : undefined,
+      });
+    },
+    [],
+  );
+
+  const applyServerProgress = useCallback(
+    (stage: string, message: string, percent?: number) => {
+      const labels = STAGE_LABELS;
+      const order = STAGE_ORDER as readonly string[];
+      const idx = order.indexOf(stage === 'tools' ? 'tools' : stage);
+      // Build / update pipeline
+      const stagesToShow = order.filter(s => {
+        // hide compressing unless we hit it
+        if (s === 'compressing' && stage !== 'compressing' && !pipelineRef.current.some(p => p.stage === 'compressing')) {
+          return false;
+        }
+        if (s === 'thinking' && stage !== 'thinking' && !pipelineRef.current.some(p => p.stage === 'thinking')) {
+          return false;
+        }
+        if (s === 'tools' && stage !== 'tools' && !pipelineRef.current.some(p => p.stage === 'tools')) {
+          // show tools only if we enter tools or already did
+          return pipelineRef.current.some(p => p.stage === 'tools') || stage === 'tools';
+        }
+        return true;
+      });
+
+      const activeIdx = idx >= 0 ? idx : stagesToShow.length - 1;
+      pipelineRef.current = stagesToShow.map((s, i) => ({
+        stage: s,
+        label: labels[s] || s,
+        done: i < activeIdx || (i === activeIdx && (stage === 'generating' || stage === 'done')),
+        active: i === activeIdx && stage !== 'done',
+      }));
+
+      // When generating, mark model/generating done appropriately
+      if (stage === 'generating') {
+        pipelineRef.current = pipelineRef.current.map(p =>
+          p.stage === 'model' || p.stage === 'generating'
+            ? { ...p, done: p.stage === 'model', active: p.stage === 'generating' }
+            : p.stage === 'thinking'
+              ? { ...p, done: true, active: false }
+              : p,
+        );
+      }
+
+      const phaseMap: Record<string, ChatActivity['phase']> = {
+        received: 'received',
+        memory: 'memory',
+        packing: 'packing',
+        compressing: 'compressing',
+        model: 'model',
+        thinking: 'thinking',
+        tools: 'tool',
+        generating: 'streaming',
+      };
+      setActivity({
+        phase: phaseMap[stage] || 'sending',
+        label: message,
+        detail: percent != null ? `${percent}%` : undefined,
+        startedAt: Date.now(),
+        percent,
+        pipeline: [...pipelineRef.current],
+      });
+    },
+    [],
+  );
 
   const touchEvent = useCallback(() => {
     lastEventAtRef.current = Date.now();
@@ -195,6 +291,7 @@ export function useChat(opts: {
 
       setMessages(prev => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
+      pipelineRef.current = [];
       touchEvent();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
@@ -361,11 +458,10 @@ export function useChat(opts: {
           onPackStats: stats => {
             touchEvent();
             setLastPackStats(stats);
-            setPhase(
-              'sending',
-              'Context packed',
-              `~${stats.estimatedTokens} tokens · ${stats.strategy}`,
-            );
+          },
+          onProgress: p => {
+            touchEvent();
+            applyServerProgress(p.stage, p.message, p.percent);
           },
           onDone: () => {
             finishStream();

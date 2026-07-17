@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.3.0] - 2026-07-17
+
+### Added
+- **Server `progress` pipeline events** (`received` → `memory` → `packing` → `compressing?` → `model` → `thinking?` → `tools?` → `generating`) so the UI never sits silent while the agent prepares
+- **Chat stage stepper + soft percent bar** driven by live `progress` messages (Chinese labels, elapsed seconds)
+
+### Changed
+- **Skip LLM history compression** when context strategy is `minimal` or history is short (avoids an extra model round-trip)
+- **Project memory cache** extended to 2 minutes (less disk I/O each turn)
+- Immediate WS ack (`received`) as soon as a chat message is accepted
+
+### Performance / UX
+- Users always see which stage is active while waiting for the first token
+- Fewer unnecessary compression calls under minimal strategy
+
+---
+
 ## [2.2.0] - 2026-07-17
 
 ### Added

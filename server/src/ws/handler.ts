@@ -42,6 +42,18 @@ export function attachWebSocketHandlers(
           }
 
           try {
+            // Immediate ack so UI never sits silent while agent prepares
+            if (ws.readyState === 1) {
+              ws.send(
+                JSON.stringify({
+                  type: 'progress',
+                  stage: 'received',
+                  message: '请求已收到，正在准备…',
+                  percent: 5,
+                } satisfies ServerMessage),
+              );
+            }
+
             await rt.agentLoop.run({
               messages: msg.messages,
               modelId: msg.modelId,

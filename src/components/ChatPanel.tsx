@@ -328,7 +328,9 @@ function ActivityBar({
       setElapsed(0);
       return;
     }
-    const tick = () => setElapsed(Math.floor((Date.now() - activity.startedAt) / 1000));
+    // Elapsed from stream start, not phase start — less jumpy
+    const origin = activity.startedAt;
+    const tick = () => setElapsed(Math.floor((Date.now() - origin) / 1000));
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
@@ -349,20 +351,45 @@ function ActivityBar({
     activity.phase === 'searching' ? '🔍' :
     activity.phase === 'tool' ? '🔧' :
     activity.phase === 'thinking' ? '💭' :
-    activity.phase === 'streaming' ? '✨' :
+    activity.phase === 'streaming' || activity.phase === 'generating' as string ? '✨' :
     activity.phase === 'error' ? '⚠️' :
-    activity.phase === 'connecting' || activity.phase === 'sending' ? '📡' :
+    activity.phase === 'compressing' ? '📦' :
+    activity.phase === 'packing' || activity.phase === 'memory' ? '📋' :
+    activity.phase === 'model' || activity.phase === 'received' ? '📡' :
     '⏳';
+
+  const pct = activity.percent != null ? Math.min(100, Math.max(0, activity.percent)) : null;
 
   return (
     <div className={`chat-activity phase-${activity.phase}`}>
-      <span className="chat-activity-pulse" />
-      <span className="chat-activity-icon">{icon}</span>
-      <span className="chat-activity-label">{activity.label}</span>
-      {activity.detail && (
-        <span className="chat-activity-detail" title={activity.detail}>{activity.detail}</span>
+      {activity.pipeline && activity.pipeline.length > 0 && (
+        <div className="chat-pipeline" aria-label="处理阶段">
+          {activity.pipeline.map((step, i) => (
+            <span
+              key={step.stage}
+              className={`chat-pipeline-step ${step.done ? 'done' : ''} ${step.active ? 'active' : ''}`}
+            >
+              {i > 0 && <span className="chat-pipeline-sep">→</span>}
+              <span className="chat-pipeline-dot">{step.done ? '✓' : step.active ? '●' : '○'}</span>
+              <span className="chat-pipeline-name">{step.label}</span>
+            </span>
+          ))}
+        </div>
       )}
-      <span className="chat-activity-time">{elapsed}s</span>
+      <div className="chat-activity-row">
+        <span className="chat-activity-pulse" />
+        <span className="chat-activity-icon">{icon}</span>
+        <span className="chat-activity-label">{activity.label}</span>
+        {activity.detail && (
+          <span className="chat-activity-detail" title={activity.detail}>{activity.detail}</span>
+        )}
+        <span className="chat-activity-time">{elapsed}s</span>
+      </div>
+      {pct != null && (
+        <div className="chat-activity-bar" aria-hidden>
+          <div className="chat-activity-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+      )}
     </div>
   );
 }

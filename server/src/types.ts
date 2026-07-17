@@ -50,6 +50,18 @@ export type ClientMessage =
   | { type: 'abort' }
   | { type: 'ping' };
 
+/** Ordered pipeline stages for progressive UX (user always knows "where we are") */
+export type ProgressStage =
+  | 'received'     // WS accepted the request
+  | 'memory'       // loading project memory / skills catalog
+  | 'packing'      // token budget pack
+  | 'compressing'  // optional LLM summary of old turns
+  | 'model'        // waiting for first token from provider
+  | 'thinking'     // model is emitting reasoning
+  | 'tools'        // tool round in progress
+  | 'generating'   // streaming answer text
+  | 'done';         // finished (optional mirror of done event)
+
 export type ServerMessage =
   | { type: 'content'; text: string }
   | { type: 'thinking'; text: string }
@@ -61,6 +73,16 @@ export type ServerMessage =
       strategy: string;
       keptMessages: number;
       droppedMessages: number;
+    }
+  | {
+      type: 'progress';
+      stage: ProgressStage;
+      /** Short message for UI */
+      message: string;
+      /** Agent tool round (1-based), when stage is tools/model */
+      round?: number;
+      /** 0–100 optional soft progress */
+      percent?: number;
     }
   | { type: 'done' }
   | { type: 'error'; message: string }

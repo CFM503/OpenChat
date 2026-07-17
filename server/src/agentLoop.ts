@@ -44,10 +44,11 @@ export class AgentLoop {
 
   private async getProjectMemory(): Promise<string> {
     const now = Date.now();
+    // 2 min cache — OPENCHAT.md rarely changes mid-session; avoids disk on every turn
     if (
       this.memoryCache &&
       this.memoryCache.dir === this.workingDirectory &&
-      now - this.memoryCache.at < 30_000
+      now - this.memoryCache.at < 120_000
     ) {
       return this.memoryCache.text;
     }
@@ -161,6 +162,13 @@ export class AgentLoop {
     }
 
     // ── System parts (token-budgeted later) ──────────────────────────
+    onEvent({
+      type: 'progress',
+      stage: 'memory',
+      message: '加载项目说明与技能列表…',
+      percent: 15,
+    });
+
     const systemParts: string[] = [];
     try {
       let memory = await this.getProjectMemory();
@@ -178,16 +186,20 @@ export class AgentLoop {
         description: e.description,
         whenToUse: e.whenToUse,
       }));
+      // Minimal strategy: names only + smaller budget → faster packing & fewer tokens
       const catalog = packSkillCatalog(
         entries,
         caps.skillCatalogMode,
-        caps.contextStrategy === 'minimal' ? 800 : 2000,
+        caps.contextStrategy === 'minimal' ? 600 : 2000,
       );
       if (catalog) systemParts.push(catalog);
     }
     systemParts.push(
       'You are OpenChat, an AI coding agent. Use tools to inspect and edit the workspace. ' +
-        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.',
+        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.' +
+        (enableThinking === false
+          ? ' Be concise; do not narrate long internal reasoning.'
+          : ''),
     );
 
     // Pull any system messages already in conversation into systemParts
@@ -209,6 +221,13 @@ export class AgentLoop {
     };
 
     // ── Pack for token budget (cheap, no LLM) ────────────────────────
+    onEvent({
+      type: 'progress',
+      stage: 'packing',
+      message: '整理对话上下文（控制 token 成本）…',
+      percent: 30,
+    });
+
     let packed = packConversation({
       messages: convMessages,
       systemParts,
@@ -224,9 +243,20 @@ export class AgentLoop {
       droppedMessages: packed.stats.droppedMessages,
     });
 
-    // Optional LLM compression when still over threshold
-    // Prefer a cheaper "fast" model if configured via agentRouting
-    if (packed.needsLlmCompression && convMessages.length > 6) {
+    // Optional LLM compression — skip when history is short or strategy is minimal
+    // (hard truncate already applied by packer; saves a full extra LLM round-trip)
+    const allowLlmCompress =
+      packed.needsLlmCompression &&
+      convMessages.length > 8 &&
+      caps.contextStrategy !== 'minimal';
+
+    if (allowLlmCompress) {
+      onEvent({
+        type: 'progress',
+        stage: 'compressing',
+        message: '对话较长，正在压缩历史（可能稍等）…',
+        percent: 40,
+      });
       try {
         const cfg = (this.providers as any).config?.load?.() as
           | { agentRouting?: { cheapModelId?: string } }
@@ -280,6 +310,18 @@ export class AgentLoop {
 
       let responseContent = '';
       const toolCallsAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
+      let firstToken = true;
+
+      onEvent({
+        type: 'progress',
+        stage: 'model',
+        message:
+          round === 0
+            ? '正在请求模型（等待首字）…'
+            : `第 ${round + 1} 轮：根据工具结果继续…`,
+        round: round + 1,
+        percent: Math.min(55 + round * 8, 85),
+      });
 
       try {
         for await (const chunk of this.providers.streamCompletion({
@@ -290,10 +332,30 @@ export class AgentLoop {
           enableThinking,
         })) {
           if (chunk.type === 'content' && chunk.content) {
+            if (firstToken) {
+              firstToken = false;
+              onEvent({
+                type: 'progress',
+                stage: 'generating',
+                message: '模型开始回复…',
+                round: round + 1,
+                percent: 70,
+              });
+            }
             responseContent += chunk.content;
             onEvent({ type: 'content', text: chunk.content });
           }
           if (chunk.type === 'thinking' && chunk.content && enableThinking !== false) {
+            if (firstToken) {
+              firstToken = false;
+              onEvent({
+                type: 'progress',
+                stage: 'thinking',
+                message: '模型深度思考中…',
+                round: round + 1,
+                percent: 60,
+              });
+            }
             onEvent({ type: 'thinking', text: chunk.content });
           }
           if (chunk.type === 'tool_call' && chunk.toolCalls) {
@@ -348,6 +410,14 @@ export class AgentLoop {
       });
 
       // Execute each tool call
+      onEvent({
+        type: 'progress',
+        stage: 'tools',
+        message: `执行工具（${toolCalls.length} 个）…`,
+        round: round + 1,
+        percent: 75,
+      });
+
       for (const tc of toolCalls) {
         if (signal?.aborted) break;
 
@@ -370,6 +440,13 @@ export class AgentLoop {
           continue;
         }
 
+        onEvent({
+          type: 'progress',
+          stage: 'tools',
+          message: `运行工具：${tc.name}`,
+          round: round + 1,
+          percent: 78,
+        });
         onEvent({
           type: 'tool_start',
           toolCallId: tc.id,

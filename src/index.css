@@ -1425,9 +1425,9 @@ pre:hover .code-copy-btn {
 
 .chat-activity {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px 6px;
   font-size: 12px;
   color: var(--text-secondary);
   background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), transparent);
@@ -1438,6 +1438,68 @@ pre:hover .code-copy-btn {
 .chat-activity.idle {
   background: transparent;
   color: var(--text-muted);
+  flex-direction: row;
+  align-items: center;
+}
+
+.chat-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.chat-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.chat-pipeline-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.chat-pipeline-step.done {
+  color: var(--color-success);
+  opacity: 1;
+}
+
+.chat-pipeline-step.active {
+  color: var(--accent-color);
+  opacity: 1;
+  font-weight: 600;
+}
+
+.chat-pipeline-sep {
+  margin: 0 2px;
+  opacity: 0.4;
+}
+
+.chat-pipeline-dot {
+  font-size: 9px;
+}
+
+.chat-activity-bar {
+  height: 2px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.chat-activity-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #06b6d4);
+  transition: width 0.35s ease;
+  border-radius: 1px;
 }
 
 .chat-activity-pulse {

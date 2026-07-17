@@ -9,6 +9,13 @@ import { apiUrl, getWsUrl } from '../lib/apiBase.js';
 
 export type { ChatMessage, ServerMessage, ClientMessage };
 
+export interface ProgressEvent {
+  stage: string;
+  message: string;
+  round?: number;
+  percent?: number;
+}
+
 interface StreamCallbacks {
   onContent: (text: string) => void;
   onThinking: (text: string) => void;
@@ -19,6 +26,7 @@ interface StreamCallbacks {
     keptMessages: number;
     droppedMessages: number;
   }) => void;
+  onProgress?: (p: ProgressEvent) => void;
   onDone: () => void;
   onError: (message: string) => void;
 }
@@ -163,6 +171,14 @@ class BackendClient {
           strategy: msg.strategy,
           keptMessages: msg.keptMessages,
           droppedMessages: msg.droppedMessages,
+        });
+        break;
+      case 'progress':
+        this.callbacks.onProgress?.({
+          stage: msg.stage,
+          message: msg.message,
+          round: msg.round,
+          percent: msg.percent,
         });
         break;
       case 'done':

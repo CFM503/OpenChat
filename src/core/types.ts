@@ -73,6 +73,11 @@ export type ChatActivityPhase =
   | 'connecting'
   | 'searching'
   | 'sending'
+  | 'received'
+  | 'memory'
+  | 'packing'
+  | 'compressing'
+  | 'model'
   | 'thinking'
   | 'tool'
   | 'streaming'
@@ -86,6 +91,10 @@ export interface ChatActivity {
   detail?: string;
   /** Epoch ms when this phase started */
   startedAt: number;
+  /** Soft 0–100 from server progress */
+  percent?: number;
+  /** Pipeline stages completed this turn (for stepper UI) */
+  pipeline?: Array<{ stage: string; label: string; done: boolean; active: boolean }>;
 }
 
 export interface ChatMessage {
