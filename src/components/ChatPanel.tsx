@@ -44,6 +44,8 @@ hljs.registerLanguage('md', markdown);
 import type { ChatMessage, ChatAttachment, SkillInfo, ChatActivity } from '../core/types';
 import { ToolOutput } from './ToolOutput';
 import { SkillPicker } from './SkillPicker';
+import { ReplyCanvas } from './ReplyCanvas';
+import { parseContentSegments } from '../lib/replyCanvas';
 import { backendClient } from '../services/api';
 import type { ConnectionState } from '../hooks/useBackend';
 
@@ -147,21 +149,42 @@ function CollapsibleThinking({
 }) {
   // Expand while model is still only thinking; collapse once a reply appears
   const [isExpanded, setIsExpanded] = useState(!hasReply);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+
   useEffect(() => {
     if (hasReply && !streaming) setIsExpanded(false);
   }, [hasReply, streaming]);
+
+  // Auto-scroll thinking to latest line while streaming (unless user scrolled up)
+  useEffect(() => {
+    if (!isExpanded || !streaming) return;
+    const el = scrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [thinkingContent, isExpanded, streaming]);
+
+  const onThinkingScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = dist < 48;
+  }, []);
+
   const html = useMemo(
     () => (thinkingContent?.trim() ? renderMarkdownCached(thinkingContent, !!streaming) : ''),
     [thinkingContent, streaming],
   );
   if (!thinkingContent?.trim()) return null;
   return (
-    <div className="thinking-block">
+    <div className={`thinking-block ${streaming && !hasReply ? 'is-streaming' : ''} ${hasReply ? 'has-reply' : ''}`}>
       <div className="thinking-header" onClick={() => setIsExpanded(p => !p)}>
         <span className="thinking-title">
-          {streaming && !hasReply ? 'Thinking…' : 'Thinking'}
+          <span className="thinking-badge" aria-hidden>💭</span>
+          {streaming && !hasReply ? '思考中…' : '思考过程'}
+          <span className="thinking-tag">Think</span>
         </span>
-        <span className="thinking-meta" style={{ opacity: 0.6, fontSize: '0.75em', marginLeft: 8 }}>
+        <span className="thinking-meta">
           {thinkingContent.length.toLocaleString()} chars
         </span>
         <svg className={`thinking-chevron ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -169,7 +192,12 @@ function CollapsibleThinking({
         </svg>
       </div>
       {isExpanded && (
-        <div className="thinking-content" dangerouslySetInnerHTML={{ __html: html }} />
+        <div
+          ref={scrollRef}
+          className="thinking-content"
+          onScroll={onThinkingScroll}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       )}
     </div>
   );
@@ -178,18 +206,53 @@ function CollapsibleThinking({
 const MessageBubble = memo(function MessageBubble({
   content,
   streaming,
+  showAnswerLabel,
 }: {
   content: string;
   streaming?: boolean;
+  /** Show 「回答」chip when there is also a thinking block above */
+  showAnswerLabel?: boolean;
 }) {
-  const html = useMemo(
-    () => renderMarkdownCached(content, !!streaming),
-    [content, streaming],
-  );
+  // While streaming, keep simple markdown (canvas parses best on complete JSON fences)
+  const segments = useMemo(() => {
+    if (streaming) {
+      return [{ type: 'markdown' as const, text: content }];
+    }
+    return parseContentSegments(content);
+  }, [content, streaming]);
+
   return (
-    <div className="message-bubble">
-      <div dangerouslySetInnerHTML={{ __html: html }} />
-      {streaming && content && <span className="stream-cursor" aria-hidden />}
+    <div className="message-bubble-stack answer-stack">
+      {segments.map((seg, i) => {
+        if (seg.type === 'canvas') {
+          return (
+            <div key={`c-${i}`} className="message-canvas-wrap">
+              <ReplyCanvas block={seg.block} />
+            </div>
+          );
+        }
+        const text = seg.text;
+        if (!text?.trim()) return null;
+        const html = renderMarkdownCached(text, !!streaming);
+        return (
+          <div
+            key={`m-${i}`}
+            className={`message-bubble answer-bubble${showAnswerLabel ? ' with-label' : ''}`}
+          >
+            {i === 0 && showAnswerLabel && (
+              <div className="answer-label">
+                <span className="answer-badge" aria-hidden>✦</span>
+                回答
+                <span className="answer-tag">Reply</span>
+              </div>
+            )}
+            <div className="answer-body" dangerouslySetInnerHTML={{ __html: html }} />
+            {streaming && text && i === segments.length - 1 && (
+              <span className="stream-cursor" aria-hidden />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 });
@@ -245,7 +308,11 @@ const MessageRow = memo(function MessageRow({
         </div>
       )}
       {msg.content && (
-        <MessageBubble content={msg.content} streaming={msg.isStreaming} />
+        <MessageBubble
+          content={msg.content}
+          streaming={msg.isStreaming}
+          showAnswerLabel={msg.role === 'assistant' && !!msg.thinking?.trim()}
+        />
       )}
       {msg.attachments && msg.attachments.length > 0 && (
         <div className="message-attachments">

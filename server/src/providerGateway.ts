@@ -18,54 +18,138 @@ interface StreamChunk {
 /**
  * Normalize OpenAI-compatible stream deltas from many vendors.
  * Handles string content, multimodal arrays, and various reasoning fields.
+ *
+ * IMPORTANT: Gateways often mirror the same token into multiple aliases
+ * (`reasoning_content` + `reasoning` + `thinking`). Taking all of them
+ * produces "OkayOkay,, the the user user" doubled text. Use only the first
+ * non-empty thinking source and the first content source per delta.
  */
-function extractOpenAiDeltaPieces(delta: Record<string, any>): StreamChunk[] {
+export function extractOpenAiDeltaPieces(delta: Record<string, any>): StreamChunk[] {
   const out: StreamChunk[] = [];
   if (!delta || typeof delta !== 'object') return out;
 
-  // ── Reasoning / CoT (many CN + global gateways) ───────────────────
-  const thinkCandidates = [
+  const thinkingText = firstThinkingText(delta);
+  const contentText = firstContentText(delta);
+
+  // Same payload mirrored into both fields → emit once as content (user-visible)
+  // if it looks like normal answer; else once as thinking.
+  if (thinkingText && contentText && thinkingText === contentText) {
+    out.push({ type: 'content', content: contentText });
+  } else {
+    if (thinkingText) out.push({ type: 'thinking', content: thinkingText });
+    if (contentText) out.push({ type: 'content', content: contentText });
+  }
+
+  const normalizedTools = normalizeOpenAiToolCalls(delta.tool_calls);
+  if (normalizedTools.length) {
+    out.push({ type: 'tool_call', content: '', toolCalls: normalizedTools });
+  }
+
+  return out;
+}
+
+/**
+ * OpenAI streams tool calls as:
+ *   { index, id, function: { name, arguments } }
+ * Some gateways flatten to { name, arguments }. Normalize to a single shape
+ * the agent loop can accumulate (name/arguments at top level).
+ */
+export function normalizeOpenAiToolCalls(raw: unknown): ToolCallDelta[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const out: ToolCallDelta[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const tc = raw[i];
+    if (!tc || typeof tc !== 'object') continue;
+    const fn = (tc as any).function;
+    const name =
+      (typeof (tc as any).name === 'string' && (tc as any).name) ||
+      (typeof fn?.name === 'string' && fn.name) ||
+      '';
+    const argsRaw =
+      (tc as any).arguments ??
+      fn?.arguments ??
+      (tc as any).args ??
+      '';
+    const args =
+      typeof argsRaw === 'string'
+        ? argsRaw
+        : argsRaw != null
+          ? JSON.stringify(argsRaw)
+          : '';
+    out.push({
+      index: typeof (tc as any).index === 'number' ? (tc as any).index : i,
+      id: typeof (tc as any).id === 'string' ? (tc as any).id : undefined,
+      name: name || undefined,
+      arguments: args || undefined,
+    });
+  }
+  return out;
+}
+
+function firstThinkingText(delta: Record<string, any>): string {
+  const tryOne = (t: unknown): string => {
+    if (typeof t === 'string' && t.length > 0) return t;
+    if (t && typeof t === 'object' && !Array.isArray(t)) {
+      const c = (t as any).content ?? (t as any).text ?? (t as any).thinking;
+      if (typeof c === 'string' && c) return c;
+    }
+    if (Array.isArray(t)) {
+      const parts: string[] = [];
+      for (const part of t) {
+        if (typeof part === 'string' && part) parts.push(part);
+        else if (part?.text) parts.push(String(part.text));
+        else if (part?.content) parts.push(String(part.content));
+        else if (part?.thinking) parts.push(String(part.thinking));
+        else if (part?.summary) parts.push(String(part.summary));
+      }
+      return parts.join('');
+    }
+    return '';
+  };
+
+  // Priority order — stop at first non-empty (do not concatenate aliases)
+  const candidates = [
     delta.reasoning_content,
     delta.reasoning,
     delta.reasoning_text,
     delta.thinking,
     delta.thought,
+    delta.reasoning_details,
   ];
-  for (const t of thinkCandidates) {
-    if (typeof t === 'string' && t.length > 0) {
-      out.push({ type: 'thinking', content: t });
-    } else if (t && typeof t === 'object') {
-      // OpenRouter-style: { content: "..." } or array of details
-      if (typeof (t as any).content === 'string' && (t as any).content) {
-        out.push({ type: 'thinking', content: (t as any).content });
-      } else if (Array.isArray(t)) {
-        for (const part of t) {
-          const text =
-            typeof part === 'string'
-              ? part
-              : part?.text || part?.content || part?.thinking || '';
-          if (text) out.push({ type: 'thinking', content: String(text) });
-        }
-      }
-    }
-  }
-  if (Array.isArray(delta.reasoning_details)) {
-    for (const part of delta.reasoning_details) {
-      const text = part?.text || part?.content || part?.summary || '';
-      if (text) out.push({ type: 'thinking', content: String(text) });
-    }
+  for (const c of candidates) {
+    const text = tryOne(c);
+    if (text) return text;
   }
 
-  // ── Visible answer content ────────────────────────────────────────
+  // content array may contain typed thinking blocks only
+  if (Array.isArray(delta.content)) {
+    const parts: string[] = [];
+    for (const block of delta.content) {
+      const bType = block?.type || '';
+      if (
+        bType === 'thinking' ||
+        bType === 'reasoning' ||
+        bType === 'reasoning_content' ||
+        bType === 'thought'
+      ) {
+        const t = block.thinking || block.text || block.content || '';
+        if (t) parts.push(String(t));
+      }
+    }
+    if (parts.length) return parts.join('');
+  }
+  return '';
+}
+
+function firstContentText(delta: Record<string, any>): string {
   const c = delta.content;
-  if (typeof c === 'string' && c.length > 0) {
-    out.push({ type: 'content', content: c });
-  } else if (Array.isArray(c)) {
-    // Multimodal / typed blocks (OpenAI, some Claude-compat proxies)
+  if (typeof c === 'string' && c.length > 0) return c;
+  if (Array.isArray(c)) {
+    const parts: string[] = [];
     for (const block of c) {
       if (!block) continue;
       if (typeof block === 'string' && block) {
-        out.push({ type: 'content', content: block });
+        parts.push(block);
         continue;
       }
       const bType = block.type || '';
@@ -75,23 +159,18 @@ function extractOpenAiDeltaPieces(delta: Record<string, any>): StreamChunk[] {
         bType === 'reasoning_content' ||
         bType === 'thought'
       ) {
-        const t = block.thinking || block.text || block.content || '';
-        if (t) out.push({ type: 'thinking', content: String(t) });
-      } else if (bType === 'text' || bType === 'output_text' || block.text) {
+        continue; // handled as thinking
+      }
+      if (bType === 'text' || bType === 'output_text' || block.text) {
         const t = block.text || block.content || '';
-        if (t) out.push({ type: 'content', content: String(t) });
+        if (t) parts.push(String(t));
       } else if (typeof block.content === 'string' && block.content) {
-        out.push({ type: 'content', content: block.content });
+        parts.push(block.content);
       }
     }
+    return parts.join('');
   }
-
-  // ── Tool calls ────────────────────────────────────────────────────
-  if (delta.tool_calls?.length) {
-    out.push({ type: 'tool_call', content: '', toolCalls: delta.tool_calls });
-  }
-
-  return out;
+  return '';
 }
 
 interface ToolCallDelta {
@@ -250,13 +329,21 @@ export class ProviderGateway {
 
           try {
             const parsed = JSON.parse(trimmed.slice(6));
-            // Prefer delta (streaming); some gateways only fill message on last chunk
             const choice = parsed.choices?.[0];
-            const delta = choice?.delta ?? choice?.message;
-            if (!delta) continue;
+            if (!choice) continue;
 
-            for (const piece of extractOpenAiDeltaPieces(delta)) {
-              yield piece;
+            // Streaming tokens live on delta; some gateways put final tool_calls on message
+            if (choice.delta) {
+              for (const piece of extractOpenAiDeltaPieces(choice.delta)) {
+                yield piece;
+              }
+            }
+            if (choice.message) {
+              for (const piece of extractOpenAiDeltaPieces(choice.message)) {
+                // Avoid duplicating full assistant text when both delta and message exist
+                if (choice.delta && piece.type !== 'tool_call') continue;
+                yield piece;
+              }
             }
 
             const finishReason = choice?.finish_reason;

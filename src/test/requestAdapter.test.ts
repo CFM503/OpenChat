@@ -112,9 +112,76 @@ describe('promoteThinkingToAnswer', () => {
     expect(promoteThinkingToAnswer(t)).toContain('这是给用户的回复');
   });
 
-  it('falls back to full thinking when no marker', async () => {
+  it('falls back to full thinking when short and not monologue', async () => {
     const { promoteThinkingToAnswer } = await import('../../server/src/agentLoop.js');
-    expect(promoteThinkingToAnswer('只有推理没有标记的一整段')).toBe('只有推理没有标记的一整段');
+    expect(promoteThinkingToAnswer('今天北京晴，气温 22 度。')).toContain('北京');
+  });
+
+  it('does not promote long internal monologue', async () => {
+    const { promoteThinkingToAnswer } = await import('../../server/src/agentLoop.js');
+    const mono =
+      'Okay, the user wants to play the weather. Let me see. Looking at the available skills, ' +
+      'I need to use web_search. Wait, the user did not specify a location. Maybe I should default to Beijing. '.repeat(
+        3,
+      );
+    expect(promoteThinkingToAnswer(mono)).toBe('');
+  });
+
+  it('extracts generic canvas fence buried in monologue', async () => {
+    const { promoteThinkingToAnswer } = await import('../../server/src/agentLoop.js');
+    const mono = `
+好的，我现在需要处理用户请求。让我看看。正确的下一步是调用工具。
+\`\`\`canvas card
+{"title":"结果","body":"完成"}
+\`\`\`
+`;
+    const out = promoteThinkingToAnswer(mono);
+    expect(out).toContain('```canvas card');
+    expect(out).toContain('结果');
+  });
+});
+
+describe('extractOpenAiDeltaPieces', () => {
+  it('does not double thinking when multiple aliases carry the same token', async () => {
+    const { extractOpenAiDeltaPieces } = await import('../../server/src/providerGateway.js');
+    const pieces = extractOpenAiDeltaPieces({
+      reasoning_content: 'Hello',
+      reasoning: 'Hello',
+      thinking: 'Hello',
+    });
+    const think = pieces.filter(p => p.type === 'thinking');
+    const content = pieces.filter(p => p.type === 'content');
+    // Only one stream piece total for mirrored fields
+    expect(think.length + content.length).toBe(1);
+    expect((think[0] || content[0])?.content).toBe('Hello');
+  });
+
+  it('normalizes OpenAI nested function tool_calls', async () => {
+    // Fixture only: OpenAI streams tool calls as function.{name,arguments}, not top-level fields.
+    // Any tool name works — this is not production routing or a hard-coded query.
+    const { extractOpenAiDeltaPieces, normalizeOpenAiToolCalls } = await import(
+      '../../server/src/providerGateway.js'
+    );
+    const nested = normalizeOpenAiToolCalls([
+      {
+        index: 0,
+        id: 'call_1',
+        function: { name: 'bash', arguments: '{"command":"echo hi"}' },
+      },
+    ]);
+    expect(nested[0].name).toBe('bash');
+    expect(nested[0].arguments).toContain('echo hi');
+
+    const pieces = extractOpenAiDeltaPieces({
+      tool_calls: [
+        {
+          index: 0,
+          id: 'call_1',
+          function: { name: 'bash', arguments: '{"command":"echo hi"}' },
+        },
+      ],
+    });
+    expect(pieces.some(p => p.type === 'tool_call' && p.toolCalls?.[0]?.name === 'bash')).toBe(true);
   });
 });
 

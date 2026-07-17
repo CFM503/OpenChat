@@ -30,7 +30,7 @@ function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Same safety net as Web: CoT-only model streams → visible reply */
+/** Same safety net as Web/server: CoT-only → reply, but never dump monologue */
 function promoteThinkingToAnswer(thinking: string): string {
   const t = thinking.trim();
   if (!t) return '';
@@ -45,6 +45,19 @@ function promoteThinkingToAnswer(thinking: string): string {
       if (after.length >= 8) return after;
     }
   }
+  const lower = t.toLowerCase();
+  const monoHits = [
+    'the user wants',
+    'let me see',
+    'available skills',
+    'okay, the user',
+    '用户想',
+    '让我看看',
+  ].filter(s => lower.includes(s)).length;
+  const wordRepeats = t.match(/\b([A-Za-z\u4e00-\u9fff]{2,})\s+\1\b/gi);
+  if (monoHits >= 2 || (wordRepeats && wordRepeats.length >= 3)) return '';
+  if (t.length <= 280) return t;
+  if (t.length > 1200) return '';
   return t;
 }
 

@@ -15,33 +15,29 @@ export function setFileToolConfig(config: ConfigManager) {
 
 /**
  * Resolves a file path and ensures it stays within the workspace or allowed directories.
+ * Uses resolveSafePath (path jail) + realpath on the nearest existing ancestor
+ * (so creating new files/folders under Desktop is allowed when the leaf does not exist yet).
  */
 async function safePath(filePath: string, workspace: string): Promise<string | null> {
-  const absPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.resolve(workspace, filePath);
-  const normalized = path.normalize(absPath);
+  const normalized = resolveSafePath(filePath, workspace);
+  if (!normalized) return null;
 
-  if (!isPathAllowed(normalized, workspace)) return null;
-
-  // Resolve symlinks to prevent escape via symbolic links
-  try {
-    const realPath = await fs.realpath(absPath);
-    const realNormalized = path.normalize(realPath);
-    if (!isPathAllowed(realNormalized, workspace)) return null;
-  } catch {
-    // File doesn't exist yet — check parent directory for write operations
-    const parentDir = path.dirname(absPath);
+  // Walk up until an existing path is found; that ancestor must also be in jail
+  let cur = normalized;
+  for (;;) {
     try {
-      const realParent = await fs.realpath(parentDir);
-      const realParentNorm = path.normalize(realParent);
-      if (!isPathAllowed(realParentNorm, workspace)) return null;
+      const real = path.normalize(await fs.realpath(cur));
+      if (!resolveSafePath(real, workspace)) return null;
+      // Return the original logical path (may not exist yet) for create/write
+      return normalized;
     } catch {
-      return null;  // Parent doesn't exist or can't be resolved
+      const parent = path.dirname(cur);
+      if (!parent || parent === cur) return null;
+      // Prefix check: every ancestor must still be inside allowed roots
+      if (!resolveSafePath(parent, workspace)) return null;
+      cur = parent;
     }
   }
-
-  return normalized;
 }
 
 // ── File Read ───────────────────────────────────────────────────────────────

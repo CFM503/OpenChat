@@ -25,21 +25,43 @@ const onlyBackend = args.has('--backend');
 
 /**
  * @param {number} port
- * @returns {Promise<boolean>} true if port is in use
+ * @param {string} host
+ * @returns {Promise<boolean>} true if port is in use on this host
  */
-export function checkPortInUse(port) {
+function checkHostPortInUse(port, host) {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.once('error', (err) => {
-      resolve(/** @type {NodeJS.ErrnoException} */ (err).code === 'EADDRINUSE');
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+      // EADDRINUSE = busy; EADDRNOTAVAIL / EAFNOSUPPORT = stack N/A → treat as free
+      if (code === 'EADDRINUSE') resolve(true);
+      else resolve(false);
     });
     server.once('listening', () => {
       server.close(() => resolve(false));
     });
-    // Bind IPv4 explicitly so Windows dual-stack doesn't hide conflicts
-    server.listen(port, '0.0.0.0');
+    try {
+      server.listen(port, host);
+    } catch {
+      resolve(false);
+    }
   });
+}
+
+/**
+ * True if anything is listening on the port (IPv4 and/or IPv6).
+ * Windows often binds node to `::` (IPv6); checking only 0.0.0.0 misses that
+ * and reports "free" while the real server later fails with EADDRINUSE.
+ * @param {number} port
+ * @returns {Promise<boolean>}
+ */
+export async function checkPortInUse(port) {
+  const hosts = ['0.0.0.0', '127.0.0.1', '::', '::1'];
+  for (const host of hosts) {
+    if (await checkHostPortInUse(port, host)) return true;
+  }
+  return false;
 }
 
 function killHints(port) {

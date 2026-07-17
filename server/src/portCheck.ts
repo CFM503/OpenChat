@@ -4,19 +4,35 @@
 
 import net from 'net';
 
-/** @returns true if something is already listening on the port */
-export function checkPortInUse(port: number, host = '0.0.0.0'): Promise<boolean> {
+/** @returns true if something is already listening on this host:port */
+function checkHostPortInUse(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.once('error', (err: NodeJS.ErrnoException) => {
+      // Busy only on EADDRINUSE; other codes (e.g. no IPv6) → free on this stack
       resolve(err.code === 'EADDRINUSE');
     });
     server.once('listening', () => {
       server.close(() => resolve(false));
     });
-    server.listen(port, host);
+    try {
+      server.listen(port, host);
+    } catch {
+      resolve(false);
+    }
   });
+}
+
+/**
+ * True if port is taken on IPv4 and/or IPv6.
+ * Windows Node often listens on `::`; checking only 0.0.0.0 misses conflicts.
+ */
+export async function checkPortInUse(port: number): Promise<boolean> {
+  for (const host of ['0.0.0.0', '127.0.0.1', '::', '::1'] as const) {
+    if (await checkHostPortInUse(port, host)) return true;
+  }
+  return false;
 }
 
 function killHints(port: number): string {

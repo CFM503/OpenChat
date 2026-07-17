@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.1] - 2026-07-17
+
+### Added
+- **Reply canvas (Web)**: weather cards, image galleries (lightbox), info cards
+  - Parses ` ```canvas weather|gallery|card ` and weather-like ` ```json ` blocks
+  - Auto-lifts markdown images into a gallery
+- **Thinking auto-scroll**: CoT panel sticks to the latest line while streaming (pauses if you scroll up)
+- **Runtime environment block** in agent system prompt (OS, shell, project cwd, Desktop/Documents/Downloads)
+- **Smoke scripts**: `scripts/smoke-chat.mjs`, `scripts/smoke-files.mjs`
+
+### Fixed
+- **Doubled stream text** (`OkayOkay,, the the user user`): SSE parser no longer concatenates multiple mirrored reasoning fields on the same delta
+- **CoT monologue shown as the reply**: promote-to-answer refuses long internal planning text
+- **Empty assistant recovery**: extract generic ` ```canvas ` fences / final-answer markers; never exit silently on empty tool_calls
+- **Tool-call reliability**: normalize OpenAI `function.name` / `function.arguments`; domain-agnostic nudge when model only describes a tool call
+- **file_read crash**: `isPathAllowed is not defined` → `resolveSafePath`
+- **file_write to new Desktop paths**: walk-up realpath so new files under allowed roots work
+- **Port check false free on Windows**: check IPv4 + IPv6 (`0.0.0.0`, `::`, loopbacks)
+- **index.html restored**: root entry was overwritten by an unrelated game page (broke Vite app)
+
+### Changed
+- Distinct UI for **Think** (amber) vs **Reply** (indigo) in chat
+- Path jail allows user Desktop/Documents/Downloads/home by default
+- No domain-hardcoded chat paths for weather; use general prompt + `web_search` / tools
+
+---
+
 ## [2.5.0] - 2026-07-17
 
 ### Fixed

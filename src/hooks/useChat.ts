@@ -51,10 +51,14 @@ export function buildOutboundMessages(
   });
 }
 
-/** Promote CoT-only replies into visible content (mirrors server promoteThinkingToAnswer). */
+/** Client-side promote (domain-agnostic): canvas fence / final answer / short CoT */
 function promoteThinkingLocal(thinking: string): string {
   const t = thinking.trim();
   if (!t) return '';
+
+  const canvas = t.match(/```\s*canvas(?:[^\n`]*)\n([\s\S]*?)```/i);
+  if (canvas) return canvas[0].trim();
+
   const markers = [
     /(?:^|\n)\s*(?:最终答案|最终回复|答案|结论|回答)[:：]\s*/i,
     /(?:^|\n)\s*(?:Final\s+Answer|Answer|Conclusion)\s*[:：]\s*/i,
@@ -66,6 +70,22 @@ function promoteThinkingLocal(thinking: string): string {
       if (after.length >= 8) return after;
     }
   }
+  const lower = t.toLowerCase();
+  const monoHits = [
+    'the user wants',
+    'let me see',
+    'available skills',
+    'okay, the user',
+    'we need to call',
+    '用户想',
+    '让我看看',
+    '先分析',
+    '正确的下一步',
+  ].filter(s => lower.includes(s)).length;
+  const wordRepeats = t.match(/\b([A-Za-z\u4e00-\u9fff]{2,})\s+\1\b/gi);
+  if (monoHits >= 2 || (wordRepeats && wordRepeats.length >= 3)) return '';
+  if (t.length <= 280) return t;
+  if (t.length > 1200) return '';
   return t;
 }
 

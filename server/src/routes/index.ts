@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import type { Runtime } from '../runtime.js';
 import { reloadExtensions } from '../runtime.js';
 import { listTree, readFileContent, writeFileContent } from '../fsApi.js';
+import { buildEnvContext } from '../envContext.js';
 
 export function registerRoutes(app: Hono, rt: Runtime): void {
   const {
@@ -83,16 +84,25 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
   });
 
   // ── Health / tools / discover ───────────────────────────────────────
-  app.get('/api/health', (c) =>
-    c.json({
+  app.get('/api/health', (c) => {
+    const env = buildEnvContext(workingDirectory);
+    return c.json({
       status: 'ok',
       tools: tools.getAll().map(t => t.name),
       workingDirectory,
       canMakeRequest: providers.canMakeRequest(),
       skills: skills.getAll().length,
       plugins: pluginManager.getAll().length,
-    }),
-  );
+      environment: {
+        platform: env.platformLabel,
+        shell: env.shell,
+        home: env.homeDir,
+        desktop: env.desktopDir,
+        documents: env.documentsDir,
+        downloads: env.downloadsDir,
+      },
+    });
+  });
 
   app.get('/api/tools', (c) =>
     c.json(

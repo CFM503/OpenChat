@@ -19,32 +19,21 @@ import {
 } from './context/tokenBudget.js';
 import { resolveModelCaps } from './providers/resolveCaps.js';
 import type { ModelConfig } from './providers/modelTypes.js';
+import { promoteThinkingToAnswer } from './context/promoteAnswer.js';
+import { buildEnvContext, formatEnvContextForPrompt } from './envContext.js';
 
-/**
- * When a model only streams reasoning_content and never fills delta.content,
- * turn the thinking buffer into a user-visible answer.
- * Prefer a clear "final answer" section if present; otherwise use the whole CoT.
- */
-export function promoteThinkingToAnswer(thinking: string): string {
-  const t = thinking.trim();
-  if (!t) return '';
+export { promoteThinkingToAnswer, looksLikeInternalMonologue } from './context/promoteAnswer.js';
 
-  // Common Chinese / English answer markers near the end of CoT
-  const markers = [
-    /(?:^|\n)\s*(?:最终答案|最终回复|答案|结论|回答)[:：]\s*/i,
-    /(?:^|\n)\s*(?:Final\s+Answer|Answer|Conclusion)\s*[:：]\s*/i,
-    /(?:^|\n)\s*(?:#{1,3}\s*)?(?:最终答案|Final Answer)\b/i,
-  ];
-  for (const re of markers) {
-    const m = t.match(re);
-    if (m && m.index != null) {
-      const after = t.slice(m.index + m[0].length).trim();
-      if (after.length >= 8) return after;
-    }
-  }
-
-  // If CoT is short, show it as the reply; if long, still show (better than silence)
-  return t;
+/** True when reasoning text talks about using a tool but no tool_call was emitted */
+function looksLikePlannedToolUse(thinking: string): boolean {
+  return (
+    /\b(call|use|invoke|run)\s+(the\s+)?(tool|function)\b/i.test(thinking) ||
+    /\btool\s*call\b/i.test(thinking) ||
+    /调用\s*(工具|函数)|使用工具|发起工具/i.test(thinking) ||
+    /let'?s call|need to call|should call|we need to call|i will call|i'll call/i.test(
+      thinking,
+    )
+  );
 }
 
 export interface AgentLoopParams {
@@ -183,6 +172,12 @@ export class AgentLoop {
     let llmMessagesPacked = packResult.packed.messages;
 
     const MAX_ROUNDS = 10;
+    /** Any non-empty content event sent to the client this run */
+    let anyUserContent = false;
+    /** Aggregate thinking across rounds for end-of-run recovery */
+    let allThinking = '';
+    /** One free "you planned a tool but didn't call it" retry per run */
+    let toolNudgeUsed = false;
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
       if (signal?.aborted) break;
@@ -237,12 +232,14 @@ export class AgentLoop {
               });
             }
             responseContent += chunk.content;
+            anyUserContent = true;
             onEvent({ type: 'content', text: chunk.content });
           }
           if (chunk.type === 'thinking' && chunk.content) {
             // Always accumulate for empty-content fallback (even when bulb is off).
             // Previously gateway dropped these when enableThinking=false → total silence.
             responseThinking += chunk.content;
+            allThinking += chunk.content;
             if (enableThinking !== false) {
               if (firstToken) {
                 firstToken = false;
@@ -271,16 +268,27 @@ export class AgentLoop {
           }
           if (chunk.type === 'tool_call' && chunk.toolCalls) {
             for (const tc of chunk.toolCalls) {
-              const existing = toolCallsAccumulator.get(tc.index);
+              // Support both flattened and OpenAI { function: { name, arguments } }
+              const raw = tc as any;
+              const name = raw.name ?? raw.function?.name ?? '';
+              const argPart =
+                raw.arguments ??
+                raw.function?.arguments ??
+                '';
+              const idx = typeof raw.index === 'number' ? raw.index : toolCallsAccumulator.size;
+              const existing = toolCallsAccumulator.get(idx);
               if (existing) {
-                existing.id = tc.id ?? existing.id;
-                existing.name = tc.name ?? existing.name;
-                existing.arguments = (existing.arguments ?? '') + (tc.arguments ?? '');
+                existing.id = raw.id ?? existing.id;
+                if (name) existing.name = name;
+                existing.arguments =
+                  (existing.arguments ?? '') +
+                  (typeof argPart === 'string' ? argPart : JSON.stringify(argPart ?? ''));
               } else {
-                toolCallsAccumulator.set(tc.index, {
-                  id: tc.id ?? `call_${crypto.randomUUID().slice(0, 8)}`,
-                  name: tc.name ?? '',
-                  arguments: tc.arguments ?? '',
+                toolCallsAccumulator.set(idx, {
+                  id: raw.id ?? `call_${crypto.randomUUID().slice(0, 8)}`,
+                  name: name || '',
+                  arguments:
+                    typeof argPart === 'string' ? argPart : JSON.stringify(argPart ?? ''),
                 });
               }
             }
@@ -296,44 +304,58 @@ export class AgentLoop {
         return;
       }
 
-      // If no tool calls, we're done — but recover empty replies that only had CoT
-      if (toolCallsAccumulator.size === 0) {
-        // Many reasoner / hybrid models put the entire answer in reasoning_content
-        // and leave delta.content empty. Critical when thinking UI is off: without
-        // this promote the user sees nothing at all.
-        if (!responseContent.trim() && responseThinking.trim()) {
-          const promoted = promoteThinkingToAnswer(responseThinking);
-          if (promoted) {
-            console.warn(
-              `[agentLoop] Empty content with thinking only (enableThinking=${enableThinking}) — promoting to reply`,
-            );
-            responseContent = promoted;
-            onEvent({
-              type: 'progress',
-              stage: 'generating',
-              message: '已将模型输出整理为回复…',
-              percent: 90,
-            });
-            onEvent({ type: 'content', text: promoted });
-          }
-        }
-        if (!responseContent.trim() && !responseThinking.trim()) {
-          console.warn('[agentLoop] Model returned empty content and empty thinking');
-          onEvent({
-            type: 'content',
-            text:
-              '_(模型没有返回可见正文。可尝试：提高 Max Tokens、换 chat 模型、或检查 API 是否报错。)_',
-          });
-        }
-        onEvent({ type: 'done' });
-        return;
-      }
-
       // Build the assistant message with tool_calls
       const toolCalls = Array.from(toolCallsAccumulator.values())
         .filter(tc => tc.name && tc.name.trim().length > 0);
 
+      // No usable tools this round
       if (toolCalls.length === 0) {
+        // Model only planned tools in reasoning — nudge once (domain-agnostic)
+        const plannedButNoCall =
+          !responseContent.trim() &&
+          !anyUserContent &&
+          !!responseThinking.trim() &&
+          !toolNudgeUsed &&
+          round < MAX_ROUNDS - 1 &&
+          toolDefs.length > 0 &&
+          looksLikePlannedToolUse(responseThinking);
+
+        if (plannedButNoCall) {
+          toolNudgeUsed = true;
+          console.warn('[agentLoop] Model described tools in thinking but emitted no tool_calls — nudging');
+          llmMessagesPacked.push({
+            role: 'assistant',
+            content:
+              responseContent ||
+              '(reasoning only; no tool_calls emitted)',
+          });
+          llmMessagesPacked.push({
+            role: 'user',
+            content:
+              'You planned to use a tool but did not emit a tool call. ' +
+              'Call the appropriate tool now via the function-calling API (do not only describe it). ' +
+              'If no tool is needed, give the final user-facing answer immediately.',
+          });
+          onEvent({
+            type: 'progress',
+            stage: 'model',
+            message: '模型未发起工具调用，正在督促其真正调用工具…',
+            percent: 62,
+          });
+          continue;
+        }
+
+        if (
+          this.emitContentFallback({
+            responseContent,
+            responseThinking: responseThinking || allThinking,
+            enableThinking,
+            onEvent,
+            alreadyHasContent: anyUserContent,
+          })
+        ) {
+          anyUserContent = true;
+        }
         onEvent({ type: 'done' });
         return;
       }
@@ -446,7 +468,69 @@ export class AgentLoop {
       }
     }
 
+    // Exhausted rounds or aborted mid-tools without a final assistant text
+    if (!anyUserContent) {
+      this.emitContentFallback({
+        responseContent: '',
+        responseThinking: allThinking,
+        enableThinking,
+        onEvent,
+        alreadyHasContent: false,
+      });
+    }
     onEvent({ type: 'done' });
+  }
+
+  /**
+   * Generic recovery when the model produced no user-visible content.
+   * Domain-agnostic: extract answer from thinking if possible; otherwise a short hint.
+   * (No hard-coded topic handlers — model chooses tools via function calling.)
+   */
+  private emitContentFallback(opts: {
+    responseContent: string;
+    responseThinking: string;
+    enableThinking?: boolean;
+    onEvent: (event: ServerMessage) => void;
+    alreadyHasContent?: boolean;
+  }): boolean {
+    const { responseContent, responseThinking, enableThinking, onEvent } = opts;
+    if (opts.alreadyHasContent || responseContent.trim()) {
+      return !!responseContent.trim() || !!opts.alreadyHasContent;
+    }
+
+    if (responseThinking.trim()) {
+      const promoted = promoteThinkingToAnswer(responseThinking);
+      if (promoted) {
+        console.warn(
+          `[agentLoop] Empty content with thinking only (enableThinking=${enableThinking}) — promoting to reply`,
+        );
+        onEvent({
+          type: 'progress',
+          stage: 'generating',
+          message: '已将模型输出整理为回复…',
+          percent: 90,
+        });
+        onEvent({ type: 'content', text: promoted });
+        return true;
+      }
+      console.warn(
+        '[agentLoop] Thinking-only stream had no extractable answer — sending hint',
+      );
+      onEvent({
+        type: 'content',
+        text:
+          '_(模型只输出了内部思考，没有给出正式回复。请再试一次，或换用支持工具调用的 chat 模型并提高 Max Tokens。)_',
+      });
+      return true;
+    }
+
+    console.warn('[agentLoop] Model returned empty content and empty thinking');
+    onEvent({
+      type: 'content',
+      text:
+        '_(模型没有返回可见正文。可尝试：提高 Max Tokens、换 chat 模型、或检查 API 是否报错。)_',
+    });
+    return true;
   }
 
   // ── Context packing / compression (shared by chat + compress-only) ──
@@ -580,11 +664,21 @@ export class AgentLoop {
       if (catalog) systemParts.push(catalog);
     }
 
+    // Facts about THIS machine — so Desktop/mkdir/shell commands match reality
+    systemParts.push(formatEnvContextForPrompt(buildEnvContext(this.workingDirectory)));
+
     systemParts.push(
-      'You are OpenChat, an AI coding agent. Use tools to inspect and edit the workspace. ' +
-        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs; avoid dumping large files unless needed.' +
+      'You are OpenChat, an AI coding agent with tools (bash, files, grep, git, web_search, web_fetch, skill, …). ' +
+        'Always respect the Runtime environment block above for OS, shell, and absolute paths. ' +
+        'When the user says Desktop/桌面/Documents/Downloads, use those absolute paths from the environment block — ' +
+        'do not assume the project cwd is the Desktop, and do not invent wrong home paths. ' +
+        'When live facts are needed (news, weather, docs, prices, etc.), call web_search / web_fetch — do not invent data. ' +
+        'If you decide to use a tool, emit a real tool/function call; never only describe the call in reasoning. ' +
+        'After tools (or when no tool is needed), always write a clear user-facing answer. ' +
+        'Optional: for glanceable structured data, include a fenced ```canvas <kind>``` JSON block the UI can render; keep normal markdown too. ' +
+        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs.' +
         (opts.enableThinking === false
-          ? ' Be concise; do not narrate long internal reasoning.'
+          ? ' Be concise; do not narrate long internal reasoning in the reply.'
           : ''),
     );
 

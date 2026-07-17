@@ -38,13 +38,17 @@ function isDangerousCommand(cmd: string): boolean {
 export const BashTool: ToolDefinition<BashInput> = {
   name: 'bash',
   description:
-    'Execute a shell command and return stdout/stderr. Use this to run tests, build commands, list files, check git status, etc.',
+    'Execute a shell command and return stdout/stderr. Default cwd is the project working directory. ' +
+    'On Windows this runs via cmd.exe (use Windows paths/commands). On Unix via /bin/sh. ' +
+    'For Desktop/user folders, pass absolute paths (see Runtime environment in system context). ' +
+    'Use for builds, tests, mkdir, git, listing files, etc.',
   inputSchema: {
     type: 'object',
     properties: {
       command: {
         type: 'string',
-        description: 'The shell command to execute',
+        description:
+          'Shell command. Must match the host OS (cmd on Windows, sh on Unix). Prefer absolute paths for locations outside the project.',
       },
       timeout: {
         type: 'number',
@@ -52,7 +56,8 @@ export const BashTool: ToolDefinition<BashInput> = {
       },
       cwd: {
         type: 'string',
-        description: 'Working directory (relative to project root or absolute)',
+        description:
+          'Working directory: relative to project root, or absolute under project / Desktop / Documents / Downloads / home',
       },
     },
     required: ['command'],
