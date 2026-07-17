@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function usePanelLayout() {
   const [leftPanelPct, setLeftPanelPct] = useState(() => {
@@ -6,6 +6,9 @@ export function usePanelLayout() {
     return saved ? Math.min(80, Math.max(20, parseFloat(saved))) : 45;
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => {
+    return localStorage.getItem('openchat_right_panel_collapsed') === 'true';
+  });
   const isResizingRef = useRef(false);
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -14,8 +17,12 @@ export function usePanelLayout() {
   }, [leftPanelPct]);
 
   useEffect(() => {
+    localStorage.setItem('openchat_right_panel_collapsed', String(rightPanelCollapsed));
+  }, [rightPanelCollapsed]);
+
+  useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!isResizingRef.current || !mainRef.current) return;
+      if (!isResizingRef.current || !mainRef.current || rightPanelCollapsed) return;
       const rect = mainRef.current.getBoundingClientRect();
       const sidebarWidth = sidebarCollapsed ? 0 : 260;
       const x = e.clientX - rect.left - sidebarWidth;
@@ -34,18 +41,26 @@ export function usePanelLayout() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [sidebarCollapsed]);
+  }, [sidebarCollapsed, rightPanelCollapsed]);
 
   const startResize = () => {
+    if (rightPanelCollapsed) return;
     isResizingRef.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
 
+  const toggleRightPanel = useCallback(() => {
+    setRightPanelCollapsed(v => !v);
+  }, []);
+
   return {
     leftPanelPct,
     sidebarCollapsed,
     setSidebarCollapsed,
+    rightPanelCollapsed,
+    setRightPanelCollapsed,
+    toggleRightPanel,
     mainRef,
     startResize,
   };

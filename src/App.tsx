@@ -41,6 +41,15 @@ export function App() {
 
   const ensureSessionRef = useRef<() => Promise<string | null>>(async () => null);
 
+  const handleAgentFileTouched = useCallback(
+    (filePath: string) => {
+      layout.setRightPanelCollapsed(false);
+      workspace.setRightPanelTab('code');
+      void workspace.handleOpenDiskFile(filePath);
+    },
+    [layout, workspace],
+  );
+
   const chat = useChat({
     activeModelId: config.activeModelId,
     modelRouterRef: config.modelRouterRef,
@@ -58,6 +67,7 @@ export function App() {
       setSettingsTab('search');
       setShowModelConfig(true);
     },
+    onAgentFileTouched: handleAgentFileTouched,
   });
 
   const sessions = useSessions(
@@ -98,9 +108,13 @@ export function App() {
         e.preventDefault();
         sessions.handleNewSession();
       }
-      if (mod && e.key === 'b') {
+      if (mod && e.key === 'b' && !e.shiftKey) {
         e.preventDefault();
         layout.setSidebarCollapsed(prev => !prev);
+      }
+      if (mod && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+        e.preventDefault();
+        layout.toggleRightPanel();
       }
       if (mod && e.key === 'e') {
         e.preventDefault();
@@ -242,8 +256,12 @@ export function App() {
             <span>Settings</span>
           </button>
           <button
-            className={`btn-ghost ${workspace.rightPanelTab === 'tasks' ? 'active' : ''}`}
-            onClick={() => workspace.setRightPanelTab('tasks')}
+            className={`btn-ghost ${!layout.rightPanelCollapsed && workspace.rightPanelTab === 'tasks' ? 'active' : ''}`}
+            onClick={() => {
+              layout.setRightPanelCollapsed(false);
+              workspace.setRightPanelTab('tasks');
+            }}
+            title="Task board"
           >
             <span>Tasks</span>
             {tasks.tasks.length > 0 && (
@@ -251,16 +269,33 @@ export function App() {
             )}
           </button>
           <button
-            className={`btn-ghost ${workspace.rightPanelTab === 'code' ? 'active' : ''}`}
-            onClick={() => workspace.setRightPanelTab('code')}
+            className={`btn-ghost ${!layout.rightPanelCollapsed && workspace.rightPanelTab === 'code' ? 'active' : ''}`}
+            onClick={() => {
+              layout.setRightPanelCollapsed(false);
+              workspace.setRightPanelTab('code');
+            }}
+            title="Code canvas"
           >
             <span>Code</span>
+          </button>
+          <button
+            className={`btn-ghost ${layout.rightPanelCollapsed ? 'active' : ''}`}
+            onClick={layout.toggleRightPanel}
+            title={
+              layout.rightPanelCollapsed
+                ? 'Show workspace (Ctrl+Shift+B)'
+                : 'Hide workspace (Ctrl+Shift+B)'
+            }
+            aria-pressed={layout.rightPanelCollapsed}
+            aria-label="Toggle right workspace panel"
+          >
+            <span>{layout.rightPanelCollapsed ? 'Show panel' : 'Hide panel'}</span>
           </button>
         </div>
       </header>
 
       <main
-        className={`app-main ${layout.sidebarCollapsed ? 'sidebar-collapsed' : ''}`}
+        className={`app-main ${layout.sidebarCollapsed ? 'sidebar-collapsed' : ''} ${layout.rightPanelCollapsed ? 'right-collapsed' : ''}`}
         ref={el => {
           layout.mainRef.current = el;
         }}
@@ -279,7 +314,11 @@ export function App() {
 
         <div
           className="panel panel-left"
-          style={{ flex: `0 0 ${layout.leftPanelPct}%`, minWidth: 280 }}
+          style={
+            layout.rightPanelCollapsed
+              ? { flex: '1 1 auto', minWidth: 280 }
+              : { flex: `0 0 ${layout.leftPanelPct}%`, minWidth: 280 }
+          }
         >
           <ChatPanel
             messages={chat.messages}
@@ -312,27 +351,32 @@ export function App() {
           />
         </div>
 
-        <div className="panel-divider" onMouseDown={layout.startResize} title="Drag to resize">
-          <div className="divider-handle" />
-        </div>
+        {!layout.rightPanelCollapsed && (
+          <>
+            <div className="panel-divider" onMouseDown={layout.startResize} title="Drag to resize">
+              <div className="divider-handle" />
+            </div>
 
-        <div className="panel panel-right" style={{ flex: '1 1 auto', minWidth: 280 }}>
-          <WorkspacePanel
-            activeTab={workspace.rightPanelTab}
-            onTabChange={workspace.setRightPanelTab}
-            tasks={tasks.tasks}
-            onCreateTask={tasks.handleCreateTask}
-            onTaskAction={tasks.handleTaskAction}
-            workspaceFiles={workspace.workspaceFiles}
-            onFileChange={workspace.handleFileChange}
-            onAddFile={workspace.handleAddFile}
-            onCloseFile={workspace.handleCloseFile}
-            onSaveFile={workspace.handleSaveFile}
-            onOpenDiskFile={workspace.handleOpenDiskFile}
-            activeFileId={workspace.activeFileId}
-            onSelectFile={workspace.setActiveFileId}
-          />
-        </div>
+            <div className="panel panel-right" style={{ flex: '1 1 auto', minWidth: 280 }}>
+              <WorkspacePanel
+                activeTab={workspace.rightPanelTab}
+                onTabChange={workspace.setRightPanelTab}
+                tasks={tasks.tasks}
+                onCreateTask={tasks.handleCreateTask}
+                onTaskAction={tasks.handleTaskAction}
+                workspaceFiles={workspace.workspaceFiles}
+                onFileChange={workspace.handleFileChange}
+                onAddFile={workspace.handleAddFile}
+                onCloseFile={workspace.handleCloseFile}
+                onSaveFile={workspace.handleSaveFile}
+                onOpenDiskFile={workspace.handleOpenDiskFile}
+                activeFileId={workspace.activeFileId}
+                onSelectFile={workspace.setActiveFileId}
+                onCollapse={() => layout.setRightPanelCollapsed(true)}
+              />
+            </div>
+          </>
+        )}
       </main>
 
       {showModelConfig && (

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.2] - 2026-07-17
+
+### Added
+- **Right workspace collapse**: header **Hide panel** / workspace chevron; `Ctrl+Shift+B`; preference in localStorage
+- **Auto-open AI-edited files**: successful `file_write` / `file_edit` expands Code panel and opens the file
+
+---
+
 ## [2.5.1] - 2026-07-17
 
 ### Added

@@ -22,6 +22,8 @@ interface WorkspacePanelProps {
   onOpenDiskFile: (path: string) => void;
   activeFileId: string | null;
   onSelectFile: (id: string) => void;
+  /** Collapse the entire right workspace panel */
+  onCollapse?: () => void;
 }
 
 export function WorkspacePanel({
@@ -38,6 +40,7 @@ export function WorkspacePanel({
   onOpenDiskFile,
   activeFileId,
   onSelectFile,
+  onCollapse,
 }: WorkspacePanelProps) {
   const [showAddFile, setShowAddFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -88,6 +91,19 @@ export function WorkspacePanel({
           </svg>
           Task Workspace
         </button>
+        {onCollapse && (
+          <button
+            type="button"
+            className="btn-icon workspace-collapse-btn"
+            onClick={onCollapse}
+            title="Hide workspace (Ctrl+Shift+B)"
+            aria-label="Collapse right panel"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Workspace Active Pane */}

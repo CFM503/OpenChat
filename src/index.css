@@ -168,6 +168,21 @@ body {
   border-left: 1px solid var(--border-color);
 }
 
+.app-main.right-collapsed .panel-left {
+  flex: 1 1 auto !important;
+  max-width: none;
+}
+
+.workspace-collapse-btn {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.workspace-collapse-btn:hover {
+  opacity: 1;
+  color: var(--text-primary);
+}
+
 .panel-divider {
   width: 8px;
   cursor: col-resize;
@@ -1313,9 +1328,11 @@ body {
 .workspace-tabs {
   height: 48px;
   display: flex;
+  align-items: center;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
-  padding: 0 16px;
+  padding: 0 12px 0 16px;
+  gap: 4px;
 }
 
 .tab-btn {

@@ -122,6 +122,22 @@ export interface PackStats {
 const STALE_WARN_MS = 25_000;
 const STALE_TIMEOUT_MS = 120_000;
 
+/** Extract a file path from tool input JSON (file_write / file_edit / file_read). */
+function extractToolFilePath(input?: string): string | null {
+  if (!input?.trim()) return null;
+  try {
+    const parsed = JSON.parse(input);
+    const p = parsed.path ?? parsed.file_path ?? parsed.file ?? parsed.filepath;
+    if (typeof p === 'string' && p.trim()) return p.trim();
+  } catch {
+    // bare path string
+    if (!input.includes('{') && input.length < 400) return input.trim();
+  }
+  return null;
+}
+
+const FILE_MUTATE_TOOLS = new Set(['file_write', 'file_edit']);
+
 export function useChat(opts: {
   activeModelId: string;
   modelRouterRef: React.MutableRefObject<ModelRouter>;
@@ -137,6 +153,8 @@ export function useChat(opts: {
   enableThinking: boolean;
   ensureSessionRef: React.MutableRefObject<() => Promise<string | null>>;
   onNeedSearchSettings?: () => void;
+  /** When agent successfully writes/edits a file — open it in the Code panel */
+  onAgentFileTouched?: (path: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([makeWelcome()]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -155,6 +173,10 @@ export function useChat(opts: {
   activityPhaseRef.current = activity.phase;
 
   const pipelineRef = useRef<Array<{ stage: string; label: string; done: boolean; active: boolean }>>([]);
+  /** toolCallId → path from tool_start input (result events may omit input) */
+  const toolPathByIdRef = useRef<Map<string, string>>(new Map());
+  const onAgentFileTouchedRef = useRef(opts.onAgentFileTouched);
+  onAgentFileTouchedRef.current = opts.onAgentFileTouched;
 
   const STAGE_ORDER = [
     'received',
@@ -505,12 +527,33 @@ export function useChat(opts: {
             batcher.flushNow();
             if (event.type === 'start') {
               setPhase('tool', `Running tool: ${event.name}`, event.input?.slice(0, 80));
+              const p = extractToolFilePath(event.input);
+              if (p && event.toolCallId) toolPathByIdRef.current.set(event.toolCallId, p);
             } else {
               setPhase(
                 'tool',
                 event.result?.success ? `✓ ${event.name}` : `✗ ${event.name}`,
                 event.result?.success ? undefined : event.result?.error,
               );
+              // Auto-open files the agent successfully wrote/edited
+              if (
+                event.result?.success &&
+                FILE_MUTATE_TOOLS.has(event.name) &&
+                onAgentFileTouchedRef.current
+              ) {
+                const path =
+                  extractToolFilePath(event.input) ||
+                  (event.toolCallId
+                    ? toolPathByIdRef.current.get(event.toolCallId)
+                    : undefined);
+                if (path) {
+                  try {
+                    onAgentFileTouchedRef.current(path);
+                  } catch {
+                    /* UI open is best-effort */
+                  }
+                }
+              }
             }
             setMessages(prev =>
               prev.map(m =>
