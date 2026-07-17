@@ -30,6 +30,24 @@ function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Same safety net as Web: CoT-only model streams → visible reply */
+function promoteThinkingToAnswer(thinking: string): string {
+  const t = thinking.trim();
+  if (!t) return '';
+  const markers = [
+    /(?:^|\n)\s*(?:最终答案|最终回复|答案|结论|回答)[:：]\s*/i,
+    /(?:^|\n)\s*(?:Final\s+Answer|Answer|Conclusion)\s*[:：]\s*/i,
+  ];
+  for (const re of markers) {
+    const m = t.match(re);
+    if (m && m.index != null) {
+      const after = t.slice(m.index + m[0].length).trim();
+      if (after.length >= 8) return after;
+    }
+  }
+  return t;
+}
+
 function readVersionSafe(): string {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -220,7 +238,16 @@ export async function runTui(opts: TuiOptions): Promise<void> {
         if (!streamAssistantId) break;
         const m = messages.find((x) => x.id === streamAssistantId);
         if (m) {
+          // Always buffer (needed when think:off for end-of-stream promote)
           m.thinking = (m.thinking || '') + (msg.text || '');
+          // When think:off, keep progress alive so UI doesn't look frozen
+          if (!enableThinking && !progress) {
+            progress = {
+              stage: 'generating',
+              message: '模型生成中…',
+              percent: 65,
+            };
+          }
           scheduleRender();
         }
         break;
@@ -317,10 +344,26 @@ export async function runTui(opts: TuiOptions): Promise<void> {
       const m = messages.find((x) => x.id === streamAssistantId);
       if (m) {
         m.isStreaming = false;
-        if (!m.content && !m.thinking && errorBanner) {
+        // Client safety net (mirrors Web + server promote)
+        if (!m.content?.trim() && m.thinking?.trim() && !errorBanner) {
+          m.content = promoteThinkingToAnswer(m.thinking);
+          // Avoid double-display of the same CoT as thinking + content
+          if (m.content.trim() === m.thinking.trim()) {
+            m.thinking = '';
+          }
+        }
+        if (!m.content?.trim() && !m.thinking?.trim() && errorBanner) {
           m.content = `*(error)* ${errorBanner}`;
-        } else if (!m.content && !m.thinking) {
-          m.content = m.content || '';
+        } else if (!m.content?.trim() && !m.thinking?.trim()) {
+          m.content =
+            '_(模型没有返回可见正文。可尝试：提高 Max Tokens、换 chat 模型、/think off。)_';
+        }
+        // think:off — hide CoT panel even if server sent thinking events
+        if (!enableThinking && m.thinking) {
+          if (!m.content?.trim()) {
+            m.content = promoteThinkingToAnswer(m.thinking);
+          }
+          m.thinking = '';
         }
       }
     }

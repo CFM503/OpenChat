@@ -20,6 +20,33 @@ import {
 import { resolveModelCaps } from './providers/resolveCaps.js';
 import type { ModelConfig } from './providers/modelTypes.js';
 
+/**
+ * When a model only streams reasoning_content and never fills delta.content,
+ * turn the thinking buffer into a user-visible answer.
+ * Prefer a clear "final answer" section if present; otherwise use the whole CoT.
+ */
+export function promoteThinkingToAnswer(thinking: string): string {
+  const t = thinking.trim();
+  if (!t) return '';
+
+  // Common Chinese / English answer markers near the end of CoT
+  const markers = [
+    /(?:^|\n)\s*(?:最终答案|最终回复|答案|结论|回答)[:：]\s*/i,
+    /(?:^|\n)\s*(?:Final\s+Answer|Answer|Conclusion)\s*[:：]\s*/i,
+    /(?:^|\n)\s*(?:#{1,3}\s*)?(?:最终答案|Final Answer)\b/i,
+  ];
+  for (const re of markers) {
+    const m = t.match(re);
+    if (m && m.index != null) {
+      const after = t.slice(m.index + m[0].length).trim();
+      if (after.length >= 8) return after;
+    }
+  }
+
+  // If CoT is short, show it as the reply; if long, still show (better than silence)
+  return t;
+}
+
 export interface AgentLoopParams {
   messages: ChatMessage[];
   modelId?: string;
@@ -175,6 +202,7 @@ export class AgentLoop {
       }
 
       let responseContent = '';
+      let responseThinking = '';
       const toolCallsAccumulator = new Map<number, { id: string; name: string; arguments: string }>();
       let firstToken = true;
 
@@ -211,18 +239,35 @@ export class AgentLoop {
             responseContent += chunk.content;
             onEvent({ type: 'content', text: chunk.content });
           }
-          if (chunk.type === 'thinking' && chunk.content && enableThinking !== false) {
-            if (firstToken) {
-              firstToken = false;
-              onEvent({
-                type: 'progress',
-                stage: 'thinking',
-                message: '模型深度思考中…',
-                round: round + 1,
-                percent: 60,
-              });
+          if (chunk.type === 'thinking' && chunk.content) {
+            // Always accumulate for empty-content fallback (even when bulb is off).
+            // Previously gateway dropped these when enableThinking=false → total silence.
+            responseThinking += chunk.content;
+            if (enableThinking !== false) {
+              if (firstToken) {
+                firstToken = false;
+                onEvent({
+                  type: 'progress',
+                  stage: 'thinking',
+                  message: '模型深度思考中…',
+                  round: round + 1,
+                  percent: 60,
+                });
+              }
+              onEvent({ type: 'thinking', text: chunk.content });
+            } else {
+              // Bulb off: do not open Thinking UI, but show live progress so chat isn't frozen
+              if (firstToken) {
+                firstToken = false;
+                onEvent({
+                  type: 'progress',
+                  stage: 'generating',
+                  message: '模型生成中（未开启深度思考展示）…',
+                  round: round + 1,
+                  percent: 65,
+                });
+              }
             }
-            onEvent({ type: 'thinking', text: chunk.content });
           }
           if (chunk.type === 'tool_call' && chunk.toolCalls) {
             for (const tc of chunk.toolCalls) {
@@ -251,8 +296,35 @@ export class AgentLoop {
         return;
       }
 
-      // If no tool calls, we're done
+      // If no tool calls, we're done — but recover empty replies that only had CoT
       if (toolCallsAccumulator.size === 0) {
+        // Many reasoner / hybrid models put the entire answer in reasoning_content
+        // and leave delta.content empty. Critical when thinking UI is off: without
+        // this promote the user sees nothing at all.
+        if (!responseContent.trim() && responseThinking.trim()) {
+          const promoted = promoteThinkingToAnswer(responseThinking);
+          if (promoted) {
+            console.warn(
+              `[agentLoop] Empty content with thinking only (enableThinking=${enableThinking}) — promoting to reply`,
+            );
+            responseContent = promoted;
+            onEvent({
+              type: 'progress',
+              stage: 'generating',
+              message: '已将模型输出整理为回复…',
+              percent: 90,
+            });
+            onEvent({ type: 'content', text: promoted });
+          }
+        }
+        if (!responseContent.trim() && !responseThinking.trim()) {
+          console.warn('[agentLoop] Model returned empty content and empty thinking');
+          onEvent({
+            type: 'content',
+            text:
+              '_(模型没有返回可见正文。可尝试：提高 Max Tokens、换 chat 模型、或检查 API 是否报错。)_',
+          });
+        }
         onEvent({ type: 'done' });
         return;
       }

@@ -33,12 +33,32 @@ describe('buildCompletionRequest', () => {
 
   it('uses max_completion_tokens for o-series', () => {
     const req = buildCompletionRequest(
-      { ...openaiModel, model: 'o3-mini', tokenParam: 'max_completion_tokens', supportsTemperature: false },
+      {
+        ...openaiModel,
+        model: 'o3-mini',
+        maxTokens: 8192,
+        tokenParam: 'max_completion_tokens',
+        supportsTemperature: false,
+      },
       { messages: [{ role: 'user', content: 'hi' }] },
     );
-    expect(req.body.max_completion_tokens).toBe(1024);
+    expect(req.body.max_completion_tokens).toBe(8192);
     expect(req.body.max_tokens).toBeUndefined();
     expect(req.body.temperature).toBeUndefined();
+  });
+
+  it('raises tiny max_tokens floor for pure reasoners', () => {
+    const req = buildCompletionRequest(
+      {
+        ...openaiModel,
+        model: 'o3-mini',
+        maxTokens: 512,
+        tokenParam: 'max_completion_tokens',
+        supportsTemperature: false,
+      },
+      { messages: [{ role: 'user', content: 'hi' }] },
+    );
+    expect(req.body.max_completion_tokens).toBe(2048);
   });
 
   it('builds anthropic messages request', () => {
@@ -82,6 +102,19 @@ describe('adaptMessagesForModel', () => {
     expect(messages[0].role).toBe('user');
     expect(messages[0].content).toContain('SYS');
     expect(messages[0].content).toContain('HELLO');
+  });
+});
+
+describe('promoteThinkingToAnswer', () => {
+  it('extracts 最终答案 section', async () => {
+    const { promoteThinkingToAnswer } = await import('../../server/src/agentLoop.js');
+    const t = '先分析问题…\n\n最终答案：这是给用户的回复，足够长。';
+    expect(promoteThinkingToAnswer(t)).toContain('这是给用户的回复');
+  });
+
+  it('falls back to full thinking when no marker', async () => {
+    const { promoteThinkingToAnswer } = await import('../../server/src/agentLoop.js');
+    expect(promoteThinkingToAnswer('只有推理没有标记的一整段')).toBe('只有推理没有标记的一整段');
   });
 });
 

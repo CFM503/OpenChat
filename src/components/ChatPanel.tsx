@@ -135,8 +135,21 @@ function renderMarkdownCached(content: string, streaming: boolean): string {
   return html;
 }
 
-function CollapsibleThinking({ thinkingContent, streaming }: { thinkingContent: string; streaming?: boolean }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+function CollapsibleThinking({
+  thinkingContent,
+  streaming,
+  hasReply,
+}: {
+  thinkingContent: string;
+  streaming?: boolean;
+  /** When the assistant already has a visible reply, collapse CoT by default */
+  hasReply?: boolean;
+}) {
+  // Expand while model is still only thinking; collapse once a reply appears
+  const [isExpanded, setIsExpanded] = useState(!hasReply);
+  useEffect(() => {
+    if (hasReply && !streaming) setIsExpanded(false);
+  }, [hasReply, streaming]);
   const html = useMemo(
     () => (thinkingContent?.trim() ? renderMarkdownCached(thinkingContent, !!streaming) : ''),
     [thinkingContent, streaming],
@@ -145,7 +158,12 @@ function CollapsibleThinking({ thinkingContent, streaming }: { thinkingContent: 
   return (
     <div className="thinking-block">
       <div className="thinking-header" onClick={() => setIsExpanded(p => !p)}>
-        <span className="thinking-title">Thinking</span>
+        <span className="thinking-title">
+          {streaming && !hasReply ? 'Thinking…' : 'Thinking'}
+        </span>
+        <span className="thinking-meta" style={{ opacity: 0.6, fontSize: '0.75em', marginLeft: 8 }}>
+          {thinkingContent.length.toLocaleString()} chars
+        </span>
         <svg className={`thinking-chevron ${isExpanded ? 'expanded' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="9 18 15 12 9 6" />
         </svg>
@@ -190,7 +208,11 @@ const MessageRow = memo(function MessageRow({
   return (
     <div className={`message-item ${msg.role === 'user' ? 'user' : 'assistant'}`}>
       {msg.role === 'assistant' && msg.thinking && (
-        <CollapsibleThinking thinkingContent={msg.thinking} streaming={msg.isStreaming} />
+        <CollapsibleThinking
+          thinkingContent={msg.thinking}
+          streaming={msg.isStreaming}
+          hasReply={!!msg.content?.trim()}
+        />
       )}
       {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
         <div className="tool-events">

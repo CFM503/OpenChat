@@ -51,6 +51,24 @@ export function buildOutboundMessages(
   });
 }
 
+/** Promote CoT-only replies into visible content (mirrors server promoteThinkingToAnswer). */
+function promoteThinkingLocal(thinking: string): string {
+  const t = thinking.trim();
+  if (!t) return '';
+  const markers = [
+    /(?:^|\n)\s*(?:最终答案|最终回复|答案|结论|回答)[:：]\s*/i,
+    /(?:^|\n)\s*(?:Final\s+Answer|Answer|Conclusion)\s*[:：]\s*/i,
+  ];
+  for (const re of markers) {
+    const m = t.match(re);
+    if (m && m.index != null) {
+      const after = t.slice(m.index + m[0].length).trim();
+      if (after.length >= 8) return after;
+    }
+  }
+  return t;
+}
+
 function mergeToolEvent(prev: ToolEvent[] | undefined, event: ToolEvent): ToolEvent[] {
   const list = [...(prev || [])];
   const idx = list.findIndex(e => e.toolCallId === event.toolCallId);
@@ -336,6 +354,20 @@ export function useChat(opts: {
           else accumulatedContent += parsed.text;
         }
         if (extra?.content) accumulatedContent += extra.content;
+
+        // Client-side safety net: reasoner models sometimes only fill thinking
+        if (!accumulatedContent.trim() && accumulatedThinking.trim() && !extra?.error) {
+          accumulatedContent = promoteThinkingLocal(accumulatedThinking);
+        }
+        // Avoid double-display when content was promoted from the same CoT buffer
+        if (
+          accumulatedContent.trim() &&
+          accumulatedThinking.trim() &&
+          accumulatedContent.trim() === accumulatedThinking.trim()
+        ) {
+          accumulatedThinking = '';
+        }
+
         batcher.flushNow();
         setMessages(prev =>
           prev.map(m =>
@@ -423,6 +455,7 @@ export function useChat(opts: {
           opts.activeModelId,
           {
           onContent: text => {
+            if (!text) return;
             touchEvent();
             if (!gotFirstToken) {
               gotFirstToken = true;
@@ -433,11 +466,17 @@ export function useChat(opts: {
             batcher.schedule();
           },
           onThinking: text => {
-            // UI still drops thinking if toggle is off (server should already suppress)
-            if (!opts.enableThinking) return;
-            touchEvent();
-            setPhase('thinking', 'Reasoning…');
+            if (!text) return;
+            // Always buffer for empty-content fallback (critical when bulb is OFF —
+            // server still may emit thinking; we hide UI but need text for promote)
             accumulatedThinking += text;
+            touchEvent();
+            if (!opts.enableThinking) {
+              // Keep activity alive so UI doesn't look frozen during CoT-only streams
+              setPhase('streaming', 'Generating reply…');
+              return;
+            }
+            setPhase('thinking', 'Reasoning…');
             batcher.schedule();
           },
           onToolEvent: event => {

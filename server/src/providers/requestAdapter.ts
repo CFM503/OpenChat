@@ -183,7 +183,18 @@ export function applyThinkingPreference(
   const ep = (model.endpoint || '').toLowerCase();
 
   if (enableThinking) {
-    // Explicitly enable where APIs have a toggle (hybrid chat/reasoner models)
+    // Explicitly enable where APIs have a toggle (hybrid chat/reasoner models).
+    // Do NOT force extra flags on pure reasoners (deepseek-reasoner / r1) — they
+    // already stream reasoning_content; extra body keys can break some gateways.
+    const pureReasoner =
+      m.includes('reasoner') ||
+      m.includes('deepseek-r1') ||
+      /(^|[-_/])r1([-_/]|$)/.test(m) ||
+      /^o[1-9]/.test(m) ||
+      m.includes('o1-') ||
+      m.includes('o3-') ||
+      m.includes('o4-');
+
     if (apiStyle === 'anthropic') {
       // Only set if user explicitly wants thinking — keep mild budget
       if (!body.thinking) {
@@ -191,7 +202,11 @@ export function applyThinkingPreference(
       }
       return;
     }
+    if (pureReasoner) {
+      return;
+    }
     if (m.includes('deepseek') || ep.includes('deepseek')) {
+      // Hybrid deepseek-chat: optional thinking block
       body.thinking = { type: 'enabled' };
       return;
     }
@@ -203,22 +218,49 @@ export function applyThinkingPreference(
       body.thinking = { type: 'enabled' };
       return;
     }
-    // o-series: leave default (always reasons)
+    if (m.includes('kimi') || m.includes('moonshot') || ep.includes('moonshot')) {
+      body.enable_thinking = true;
+      return;
+    }
+    if (m.includes('doubao') || ep.includes('volces') || ep.includes('volcengine')) {
+      body.thinking = { type: 'enabled' };
+      return;
+    }
+    // o-series already handled as pureReasoner; leave other models default
     return;
   }
 
   // ── Disable thinking ──────────────────────────────────────────────
+  // Pure reasoners cannot turn CoT off — don't send flags that some gateways
+  // reject (empty stream / 400). UI will hide CoT and promote to reply.
+  const pureReasonerOff =
+    m.includes('reasoner') ||
+    m.includes('deepseek-r1') ||
+    /(^|[-_/])r1([-_/]|$)/.test(m) ||
+    /^o[1-9]/.test(m) ||
+    m.includes('o1-') ||
+    m.includes('o3-') ||
+    m.includes('o4-') ||
+    m.includes('gpt-5');
+
   if (apiStyle === 'anthropic') {
     delete body.thinking;
     return;
   }
 
   if (apiStyle === 'ollama') {
-    // No standard switch; nothing to do
     return;
   }
 
-  // DeepSeek (chat with optional thinking / reasoner hybrids)
+  if (pureReasonerOff) {
+    // o-series: lowest effort when supported; r1/reasoner: leave body clean
+    if (/^o[1-9]/.test(m) || m.includes('o1-') || m.includes('o3-') || m.includes('o4-') || m.includes('gpt-5')) {
+      body.reasoning_effort = 'low';
+    }
+    return;
+  }
+
+  // DeepSeek chat hybrids
   if (m.includes('deepseek') || ep.includes('deepseek')) {
     body.thinking = { type: 'disabled' };
     return;
@@ -248,15 +290,8 @@ export function applyThinkingPreference(
     return;
   }
 
-  // OpenAI o-series / gpt-5 reasoning: lowest effort when supported
-  if (/^o[1-9]/.test(m) || m.includes('o1-') || m.includes('o3-') || m.includes('o4-') || m.includes('gpt-5')) {
-    body.reasoning_effort = 'low';
-    return;
-  }
-
-  // Generic OpenAI-compat gateways (SiliconFlow, etc.)
+  // Generic OpenAI-compat: only one soft flag (avoid stacking incompatible keys)
   body.enable_thinking = false;
-  body.thinking = { type: 'disabled' };
 }
 
 /**
@@ -398,11 +433,21 @@ export function buildCompletionRequest(
     stream,
   };
 
-  // Output token limit
+  // Output token limit — pure reasoners with tiny max_tokens often burn the
+  // whole budget on CoT and never emit content. Soft floor only when too low.
+  let outTokens = model.maxTokens || 4096;
+  if (
+    params.enableThinking !== false &&
+    caps.reasoningMode === 'enabled' &&
+    outTokens > 0 &&
+    outTokens < 2048
+  ) {
+    outTokens = 2048;
+  }
   if (caps.tokenParam === 'max_tokens') {
-    body.max_tokens = model.maxTokens;
+    body.max_tokens = outTokens;
   } else if (caps.tokenParam === 'max_completion_tokens') {
-    body.max_completion_tokens = model.maxTokens;
+    body.max_completion_tokens = outTokens;
   }
 
   // Temperature (skip for pure reasoning models)

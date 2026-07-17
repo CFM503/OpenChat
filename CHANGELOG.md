@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.0] - 2026-07-17
+
+### Fixed
+- **Web UI “only thinking, no reply”**: reasoner models that stream only `reasoning_content` now promote CoT to a visible answer when `content` is empty; broader SSE parsing; tiny `max_tokens` floor for pure reasoners; Thinking panel collapses once a reply exists
+- **Bulb off → total silence**: no longer drop `thinking` stream chunks at the gateway when deep thinking is disabled (that discarded the only tokens some models emit); promote CoT to reply; stop sending incompatible disable flags to pure reasoners
+- **TUI same silence/CoT-only issues**: client-side promote when content empty; `/think off` hides thinking panel but still recovers reply; wait cue while streaming with think off
+
+### Changed
+- OpenAI-compatible stream parser accepts more reasoning/content field shapes (arrays, OpenRouter-style details)
+- Soft floor: pure reasoners with `max_tokens` &lt; 2048 are raised to 2048 so CoT cannot consume the entire budget
+
+---
+
 ## [2.4.0] - 2026-07-17
 
 ### Added

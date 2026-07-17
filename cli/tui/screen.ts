@@ -145,7 +145,8 @@ function buildChatLines(state: ScreenState, contentWidth: number): string[] {
         (msg.isStreaming ? c.dim + '  streaming…' + c.reset : '');
       lines.push(header);
 
-      if (msg.thinking) {
+      // Only show thinking block when think:on (state.enableThinking)
+      if (msg.thinking && state.enableThinking) {
         const thinkLines = wrap(msg.thinking.trim(), contentWidth - 6);
         const maxThink = msg.isStreaming ? 6 : 4;
         const shown = thinkLines.slice(-maxThink);
@@ -194,7 +195,12 @@ function buildChatLines(state: ScreenState, contentWidth: number): string[] {
         for (const bl of body) {
           lines.push('    ' + c.white + bl + c.reset);
         }
-      } else if (msg.isStreaming && !msg.thinking && !msg.toolEvents?.length) {
+      } else if (
+        msg.isStreaming &&
+        !(msg.thinking && state.enableThinking) &&
+        !msg.toolEvents?.length
+      ) {
+        // Streaming with think:off still may buffer thinking — show wait cue
         lines.push(c.dim + '    …' + c.reset);
       }
     } else if (msg.role === 'system') {

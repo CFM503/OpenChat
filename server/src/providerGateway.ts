@@ -15,6 +15,85 @@ interface StreamChunk {
   finishReason?: string;
 }
 
+/**
+ * Normalize OpenAI-compatible stream deltas from many vendors.
+ * Handles string content, multimodal arrays, and various reasoning fields.
+ */
+function extractOpenAiDeltaPieces(delta: Record<string, any>): StreamChunk[] {
+  const out: StreamChunk[] = [];
+  if (!delta || typeof delta !== 'object') return out;
+
+  // ── Reasoning / CoT (many CN + global gateways) ───────────────────
+  const thinkCandidates = [
+    delta.reasoning_content,
+    delta.reasoning,
+    delta.reasoning_text,
+    delta.thinking,
+    delta.thought,
+  ];
+  for (const t of thinkCandidates) {
+    if (typeof t === 'string' && t.length > 0) {
+      out.push({ type: 'thinking', content: t });
+    } else if (t && typeof t === 'object') {
+      // OpenRouter-style: { content: "..." } or array of details
+      if (typeof (t as any).content === 'string' && (t as any).content) {
+        out.push({ type: 'thinking', content: (t as any).content });
+      } else if (Array.isArray(t)) {
+        for (const part of t) {
+          const text =
+            typeof part === 'string'
+              ? part
+              : part?.text || part?.content || part?.thinking || '';
+          if (text) out.push({ type: 'thinking', content: String(text) });
+        }
+      }
+    }
+  }
+  if (Array.isArray(delta.reasoning_details)) {
+    for (const part of delta.reasoning_details) {
+      const text = part?.text || part?.content || part?.summary || '';
+      if (text) out.push({ type: 'thinking', content: String(text) });
+    }
+  }
+
+  // ── Visible answer content ────────────────────────────────────────
+  const c = delta.content;
+  if (typeof c === 'string' && c.length > 0) {
+    out.push({ type: 'content', content: c });
+  } else if (Array.isArray(c)) {
+    // Multimodal / typed blocks (OpenAI, some Claude-compat proxies)
+    for (const block of c) {
+      if (!block) continue;
+      if (typeof block === 'string' && block) {
+        out.push({ type: 'content', content: block });
+        continue;
+      }
+      const bType = block.type || '';
+      if (
+        bType === 'thinking' ||
+        bType === 'reasoning' ||
+        bType === 'reasoning_content' ||
+        bType === 'thought'
+      ) {
+        const t = block.thinking || block.text || block.content || '';
+        if (t) out.push({ type: 'thinking', content: String(t) });
+      } else if (bType === 'text' || bType === 'output_text' || block.text) {
+        const t = block.text || block.content || '';
+        if (t) out.push({ type: 'content', content: String(t) });
+      } else if (typeof block.content === 'string' && block.content) {
+        out.push({ type: 'content', content: block.content });
+      }
+    }
+  }
+
+  // ── Tool calls ────────────────────────────────────────────────────
+  if (delta.tool_calls?.length) {
+    out.push({ type: 'tool_call', content: '', toolCalls: delta.tool_calls });
+  }
+
+  return out;
+}
+
 interface ToolCallDelta {
   index: number;
   id?: string;
@@ -102,28 +181,18 @@ export class ProviderGateway {
       enableThinking: params.enableThinking,
     });
 
-    // Drop thinking stream events client-side when disabled (belt + suspenders)
-    const suppressThinking = params.enableThinking === false;
-
+    // Always forward thinking chunks to agentLoop (for empty-content fallback).
+    // UI hide / promote is decided there — never drop reasoning stream here or
+    // "thinking off" becomes total silence when the model only emits CoT.
     if (built.apiStyle === 'ollama') {
-      yield* this.filterThinking(this.streamNdjson(built, params.signal, 'ollama'), suppressThinking);
+      yield* this.streamNdjson(built, params.signal, 'ollama');
       return;
     }
     if (built.apiStyle === 'anthropic') {
-      yield* this.filterThinking(this.streamAnthropropic(built, params.signal), suppressThinking);
+      yield* this.streamAnthropropic(built, params.signal);
       return;
     }
-    yield* this.filterThinking(this.streamOpenAISse(built, params.signal), suppressThinking);
-  }
-
-  private async *filterThinking(
-    source: AsyncGenerator<StreamChunk>,
-    suppress: boolean,
-  ): AsyncGenerator<StreamChunk> {
-    for await (const chunk of source) {
-      if (suppress && chunk.type === 'thinking') continue;
-      yield chunk;
-    }
+    yield* this.streamOpenAISse(built, params.signal);
   }
 
   private async *streamOpenAISse(
@@ -181,24 +250,16 @@ export class ProviderGateway {
 
           try {
             const parsed = JSON.parse(trimmed.slice(6));
-            const delta = parsed.choices?.[0]?.delta;
+            // Prefer delta (streaming); some gateways only fill message on last chunk
+            const choice = parsed.choices?.[0];
+            const delta = choice?.delta ?? choice?.message;
             if (!delta) continue;
 
-            if (delta.content) {
-              yield { type: 'content', content: delta.content };
-            }
-            // OpenAI-style reasoning / DeepSeek reasoner
-            if (delta.reasoning_content) {
-              yield { type: 'thinking', content: delta.reasoning_content };
-            }
-            if (delta.reasoning) {
-              yield { type: 'thinking', content: typeof delta.reasoning === 'string' ? delta.reasoning : JSON.stringify(delta.reasoning) };
-            }
-            if (delta.tool_calls) {
-              yield { type: 'tool_call', content: '', toolCalls: delta.tool_calls };
+            for (const piece of extractOpenAiDeltaPieces(delta)) {
+              yield piece;
             }
 
-            const finishReason = parsed.choices?.[0]?.finish_reason;
+            const finishReason = choice?.finish_reason;
             if (finishReason) {
               yield { type: 'content', content: '', finishReason };
             }
