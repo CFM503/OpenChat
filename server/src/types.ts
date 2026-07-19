@@ -115,6 +115,25 @@ export type ServerMessage =
       cacheHitRate?: number;
       /** Cumulative cached tokens in this server session */
       totalCachedTokens?: number;
+      /** Model id used for agent tool loop this turn */
+      agentModelId?: string;
+      agentModelName?: string;
+      /** Model id used for summarization (if any) */
+      summaryModelId?: string;
+      summaryModelName?: string;
+    }
+  | {
+      /** Multi-model routing decision for this turn */
+      type: 'agent_routing';
+      primaryModelId: string;
+      primaryModelName: string;
+      agentModelId: string;
+      agentModelName: string;
+      summaryModelId: string;
+      summaryModelName: string;
+      /** agent model differs from header/primary */
+      agentIsOverride?: boolean;
+      summaryIsSeparate?: boolean;
     }
   | {
       type: 'progress';
@@ -125,6 +144,9 @@ export type ServerMessage =
       round?: number;
       /** 0–100 optional soft progress */
       percent?: number;
+      /** Model currently being called (when relevant) */
+      modelId?: string;
+      modelName?: string;
     }
   | { type: 'done' }
   | { type: 'error'; message: string }

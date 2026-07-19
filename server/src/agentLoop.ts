@@ -29,6 +29,11 @@ import {
 } from './context/promptCacheSession.js';
 import { resolveModelCaps } from './providers/resolveCaps.js';
 import type { ModelConfig } from './providers/modelTypes.js';
+import {
+  resolveAgentRouting,
+  modelLabel,
+  type ResolvedAgentRouting,
+} from './providers/agentRouting.js';
 import { promoteThinkingToAnswer } from './context/promoteAnswer.js';
 import { buildEnvContext, formatEnvContextForPrompt } from './envContext.js';
 
@@ -109,18 +114,23 @@ export class AgentLoop {
   async compressOnly(params: CompressOnlyParams): Promise<void> {
     const { messages, modelId, signal, onEvent, forceCompress = true, conversationSessionId } =
       params;
-    const model = this.providers.getActiveModel(modelId);
-    if (!model) {
+    const routing = resolveAgentRouting(this.providers, modelId);
+    if (!routing) {
       onEvent({ type: 'error', message: 'No active model configured' });
       onEvent({ type: 'done' });
       return;
     }
+    // Pack with agent/coding caps; summarize with cheap model
+    const model = routing.agent;
+    this.emitRoutingEvent(onEvent, routing);
 
     onEvent({
       type: 'progress',
       stage: 'received',
-      message: '开始上下文压缩…',
+      message: `开始上下文压缩…（摘要模型 ${modelLabel(routing.summary)}）`,
       percent: 5,
+      modelId: routing.summary.id,
+      modelName: modelLabel(routing.summary),
     });
 
     try {
@@ -138,6 +148,7 @@ export class AgentLoop {
         systemParts: prepared.systemParts,
         dynamicNotes: prepared.dynamicNotes,
         model,
+        summaryModel: routing.summary,
         onEvent,
         forceCompress,
         signal,
@@ -184,12 +195,16 @@ export class AgentLoop {
       conversationSessionId,
     } = params;
 
-    const model = this.providers.getActiveModel(modelId);
-    if (!model) {
+    const routing = resolveAgentRouting(this.providers, modelId);
+    if (!routing) {
       onEvent({ type: 'error', message: 'No active model configured' });
       onEvent({ type: 'done' });
       return;
     }
+    // Tool loop uses coding model (or primary); summary uses cheap model
+    const model = routing.agent;
+    this.emitRoutingEvent(onEvent, routing);
+
     const caps = resolveModelCaps(model);
     const toolsDisabled = model.disableTools === true || !caps.supportsTools;
     const mKey = modelCacheKey(model);
@@ -321,6 +336,7 @@ export class AgentLoop {
         systemParts,
         dynamicNotes,
         model,
+        summaryModel: routing.summary,
         onEvent,
         forceCompress: !!forceCompress,
         signal,
@@ -387,15 +403,17 @@ export class AgentLoop {
         stage: 'model',
         message:
           round === 0
-            ? '正在请求模型（等待首字）…'
-            : `第 ${round + 1} 轮：根据工具结果继续…`,
+            ? `正在请求 ${modelLabel(model)}（等待首字）…`
+            : `第 ${round + 1} 轮（${modelLabel(model)}）：根据工具结果继续…`,
         round: round + 1,
         percent: Math.min(55 + round * 8, 85),
+        modelId: model.id,
+        modelName: modelLabel(model),
       });
 
       try {
         for await (const chunk of this.providers.streamCompletion({
-          modelId,
+          modelId: model.id,
           messages: llmMessagesPacked as any,
           tools: toolDefs.length > 0 ? toolDefs : undefined,
           signal,
@@ -712,6 +730,10 @@ export class AgentLoop {
         completionTokens: turnUsage.completionTokens || undefined,
         cacheHitRate: hitRate,
         totalCachedTokens: totalUsage.cachedTokens || undefined,
+        agentModelId: model.id,
+        agentModelName: modelLabel(model),
+        summaryModelId: routing.summary.id,
+        summaryModelName: modelLabel(routing.summary),
       });
     } else if (turnUsage.promptTokens || turnUsage.cachedTokens) {
       const hitRate = cacheHitRate(turnUsage);
@@ -728,10 +750,46 @@ export class AgentLoop {
         promptTokens: turnUsage.promptTokens || undefined,
         completionTokens: turnUsage.completionTokens || undefined,
         cacheHitRate: hitRate,
+        agentModelId: model.id,
+        agentModelName: modelLabel(model),
+        summaryModelId: routing.summary.id,
+        summaryModelName: modelLabel(routing.summary),
+      });
+    } else {
+      // Always surface which models ran, even without usage fields
+      onEvent({
+        type: 'pack_stats',
+        estimatedTokens: llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0),
+        strategy: caps.contextStrategy,
+        keptMessages: llmMessagesPacked.filter(m => m.role !== 'system').length,
+        droppedMessages: 0,
+        appendOnly,
+        promptCacheSession: promptCacheSession || appendOnly,
+        agentModelId: model.id,
+        agentModelName: modelLabel(model),
+        summaryModelId: routing.summary.id,
+        summaryModelName: modelLabel(routing.summary),
       });
     }
 
     onEvent({ type: 'done' });
+  }
+
+  private emitRoutingEvent(
+    onEvent: (e: ServerMessage) => void,
+    routing: ResolvedAgentRouting,
+  ): void {
+    onEvent({
+      type: 'agent_routing',
+      primaryModelId: routing.primary.id,
+      primaryModelName: modelLabel(routing.primary),
+      agentModelId: routing.agent.id,
+      agentModelName: modelLabel(routing.agent),
+      summaryModelId: routing.summary.id,
+      summaryModelName: modelLabel(routing.summary),
+      agentIsOverride: routing.agentIsOverride,
+      summaryIsSeparate: routing.summaryIsSeparate,
+    });
   }
 
   /**
@@ -971,6 +1029,10 @@ export class AgentLoop {
       completionTokens?: number;
       cacheHitRate?: number;
       totalCachedTokens?: number;
+      agentModelId?: string;
+      agentModelName?: string;
+      summaryModelId?: string;
+      summaryModelName?: string;
     },
   ): void {
     const compressed =
@@ -1006,6 +1068,10 @@ export class AgentLoop {
       completionTokens: extra?.completionTokens,
       cacheHitRate: extra?.cacheHitRate,
       totalCachedTokens: extra?.totalCachedTokens,
+      agentModelId: extra?.agentModelId,
+      agentModelName: extra?.agentModelName,
+      summaryModelId: extra?.summaryModelId,
+      summaryModelName: extra?.summaryModelName,
     });
   }
 
@@ -1014,6 +1080,8 @@ export class AgentLoop {
     systemParts: string[];
     dynamicNotes?: string[];
     model: ModelConfig;
+    /** Prefer cheap model for LLM summary; defaults to model */
+    summaryModel?: ModelConfig;
     onEvent: (event: ServerMessage) => void;
     forceCompress: boolean;
     signal?: AbortSignal;
@@ -1021,7 +1089,16 @@ export class AgentLoop {
     packed: ReturnType<typeof packConversation>;
     runSummary?: string;
   }> {
-    const { convMessages, systemParts, dynamicNotes, model, onEvent, forceCompress, signal } = opts;
+    const {
+      convMessages,
+      systemParts,
+      dynamicNotes,
+      model,
+      summaryModel,
+      onEvent,
+      forceCompress,
+      signal,
+    } = opts;
     const caps = resolveModelCaps(model);
 
     onEvent({
@@ -1059,24 +1136,21 @@ export class AgentLoop {
       if (caps.contextStrategy === 'minimal' && !forceCompress) {
         // hard truncate only
       } else {
+        const sumModel = summaryModel || model;
         onEvent({
           type: 'progress',
           stage: 'compressing',
           message: forceCompress
-            ? '手动压缩历史上下文…'
-            : '对话较长，正在压缩历史（可能稍等）…',
+            ? `手动压缩历史（${modelLabel(sumModel)}）…`
+            : `对话较长，用 ${modelLabel(sumModel)} 压缩历史…`,
           percent: 40,
+          modelId: sumModel.id,
+          modelName: modelLabel(sumModel),
         });
         try {
-          const cfg = (this.providers as any).config?.load?.() as
-            | { agentRouting?: { cheapModelId?: string } }
-            | undefined;
-          const cheapId = cfg?.agentRouting?.cheapModelId;
-          const summarizeModel =
-            (cheapId && this.providers.getActiveModel(cheapId)) || model;
           const result = await compressConversation(
             this.providers,
-            summarizeModel,
+            sumModel,
             convMessages,
           );
           if (result.summary) {
@@ -1088,10 +1162,16 @@ export class AgentLoop {
               model,
               priorSummary: result.summary,
             });
-            console.log(`[agentLoop] after LLM compress: est≈${packed.estimatedTokens}`);
+            console.log(
+              `[agentLoop] after LLM compress via ${sumModel.id}: est≈${packed.estimatedTokens}`,
+            );
             this.emitPackStats(onEvent, packed, {
               llmCompressed: true,
               summary: result.summary,
+              summaryModelId: sumModel.id,
+              summaryModelName: modelLabel(sumModel),
+              agentModelId: model.id,
+              agentModelName: modelLabel(model),
             });
           } else {
             // No summary text — still report final pack (hard drop may apply)

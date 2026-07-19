@@ -212,6 +212,16 @@ export function App() {
                   `strategy=${chat.lastPackStats.strategy}` +
                   ` kept=${chat.lastPackStats.keptMessages}` +
                   ` dropped=${chat.lastPackStats.droppedMessages}` +
+                  (chat.lastPackStats.agentModelName
+                    ? ` agent=${chat.lastPackStats.agentModelName}`
+                    : chat.lastAgentRouting
+                      ? ` agent=${chat.lastAgentRouting.agentModelName}`
+                      : '') +
+                  (chat.lastPackStats.summaryModelName
+                    ? ` summary=${chat.lastPackStats.summaryModelName}`
+                    : chat.lastAgentRouting
+                      ? ` summary=${chat.lastAgentRouting.summaryModelName}`
+                      : '') +
                   (chat.lastPackStats.truncatedTools
                     ? ` toolsTrunc=${chat.lastPackStats.truncatedTools}`
                     : '') +
@@ -240,6 +250,9 @@ export function App() {
                 }
               >
                 ~{chat.lastPackStats.estimatedTokens} tok
+                {(chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName)
+                  ? ` · ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
+                  : ''}
                 {chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
                   ? ` · cache ${chat.lastPackStats.cachedTokens}`
                   : chat.lastPackStats.appendOnly
@@ -359,6 +372,13 @@ export function App() {
             packStatsLabel={
               chat.lastPackStats && !chat.isStreaming
                 ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
+                  (chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName
+                    ? ` · agent ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
+                    : '') +
+                  (chat.lastPackStats.llmCompressed &&
+                  (chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName)
+                    ? ` · zip via ${chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName}`
+                    : '') +
                   (chat.lastPackStats.appendOnly || chat.lastPackStats.promptCacheSession
                     ? ' · session cache'
                     : '') +
@@ -459,11 +479,31 @@ export function App() {
                 )}
                 {settingsTab === 'routing' && (
                   <div>
-                    <h3 style={{ marginBottom: 12 }}>Agent routing (token cost)</h3>
+                    <h3 style={{ marginBottom: 12 }}>Agent routing (multi-model)</h3>
                     <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                      Prefer a cheaper model for conversation summarization when the context packer
-                      exceeds the budget. Main chat still uses the header model.
+                      Split work across models to save money and keep quality:
+                      <strong> cheap</strong> for history compression,
+                      <strong> coding</strong> for the tool/agent loop,
+                      header model as the default when overrides are empty.
                     </p>
+                    <div className="form-group" style={{ marginBottom: 14 }}>
+                      <label>Coding / agent model</label>
+                      <select
+                        className="form-select"
+                        value={config.codingModelId}
+                        onChange={e => config.setCodingModelId(e.target.value)}
+                      >
+                        <option value="">Same as header (active) model</option>
+                        {config.models.map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.model})
+                          </option>
+                        ))}
+                      </select>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                        Used for chat + tools (bash, files, git…). Pick your strongest coding model here.
+                      </span>
+                    </div>
                     <div className="form-group">
                       <label>Cheap model (summarizer)</label>
                       <select
@@ -471,16 +511,20 @@ export function App() {
                         value={config.cheapModelId}
                         onChange={e => config.setCheapModelId(e.target.value)}
                       >
-                        <option value="">Same as active model</option>
+                        <option value="">Same as header (active) model</option>
                         {config.models.map(m => (
                           <option key={m.id} value={m.id}>
-                            {m.name}
+                            {m.name} ({m.model})
                           </option>
                         ))}
                       </select>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                        Used when context is compressed (/compress or auto). Prefer a small/fast model.
+                      </span>
                     </div>
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
-                      Per-model context strategy: Models → Edit → Context strategy (minimal / balanced / full).
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 16 }}>
+                      Tip: header model can stay as your daily default; set coding = Claude/DeepSeek-V3 and
+                      cheap = flash/mini. Context strategy still lives under Models → Edit.
                     </p>
                   </div>
                 )}

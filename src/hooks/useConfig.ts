@@ -53,6 +53,9 @@ export function useConfig() {
   const [cheapModelId, setCheapModelId] = useState(
     () => localStorage.getItem('openchat_cheap_model_id') || '',
   );
+  const [codingModelId, setCodingModelId] = useState(
+    () => localStorage.getItem('openchat_coding_model_id') || '',
+  );
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const modelRouterRef = useRef(new ModelRouter(models));
 
@@ -77,6 +80,7 @@ export function useConfig() {
             if (config.proxyEnabled !== undefined) setProxyEnabled(config.proxyEnabled);
             if (config.allowedDirectories) setAllowedDirectories(config.allowedDirectories);
             if (config.agentRouting?.cheapModelId) setCheapModelId(config.agentRouting.cheapModelId);
+            if (config.agentRouting?.codingModelId) setCodingModelId(config.agentRouting.codingModelId);
           }
         }
       } catch {
@@ -99,9 +103,17 @@ export function useConfig() {
     localStorage.setItem('openchat_proxy_enabled', String(proxyEnabled));
     localStorage.setItem('openchat_allowed_dirs', JSON.stringify(allowedDirectories));
     localStorage.setItem('openchat_cheap_model_id', cheapModelId);
+    localStorage.setItem('openchat_coding_model_id', codingModelId);
 
     const timer = setTimeout(async () => {
       try {
+        const agentRouting =
+          cheapModelId || codingModelId
+            ? {
+                ...(cheapModelId ? { cheapModelId } : {}),
+                ...(codingModelId ? { codingModelId } : {}),
+              }
+            : undefined;
         await fetch(apiUrl('/api/config'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -115,7 +127,7 @@ export function useConfig() {
             proxyUrl,
             proxyEnabled,
             allowedDirectories,
-            agentRouting: cheapModelId ? { cheapModelId } : undefined,
+            agentRouting,
           }),
         });
       } catch (err) {
@@ -125,7 +137,8 @@ export function useConfig() {
     return () => clearTimeout(timer);
   }, [
     models, activeModelId, webSearchEnabled, searchProvider, searchApiKey,
-    searchBaseUrl, proxyUrl, proxyEnabled, allowedDirectories, cheapModelId, isConfigLoaded,
+    searchBaseUrl, proxyUrl, proxyEnabled, allowedDirectories, cheapModelId,
+    codingModelId, isConfigLoaded,
   ]);
 
   const handleAddModel = useCallback((cfg: ModelConfig) => {
@@ -173,6 +186,8 @@ export function useConfig() {
     setAllowedDirectories,
     cheapModelId,
     setCheapModelId,
+    codingModelId,
+    setCodingModelId,
     isConfigLoaded,
     modelRouterRef,
     handleAddModel,

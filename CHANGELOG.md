@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.6] - 2026-07-19
+
+### Added
+- **Task-based multi-model routing**
+  - `agentRouting.codingModelId` — strong model for the agent tool loop
+  - `agentRouting.cheapModelId` — cheap model for history compress / summary (existing, now fully wired)
+  - Settings → **Agent routing**: configure both; empty = use header (active) model
+  - WS `agent_routing` event + pack_stats fields (`agentModelId/Name`, `summaryModelId/Name`)
+  - UI shows which agent model ran (header badge + pack stats); progress names the model in use
+  - Unit tests for `resolveAgentRouting`
+
+### Changed
+- Compress / auto-summary always prefer the configured cheap model when set
+- Agent stream requests use the coding model override when set (not only the header model)
+
+---
+
 ## [2.5.5] - 2026-07-19
 
 ### Added

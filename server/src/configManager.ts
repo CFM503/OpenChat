@@ -25,8 +25,8 @@ export interface OpenChatConfig {
   defaultContextStrategy?: 'full' | 'balanced' | 'minimal' | 'cache_max';
   /**
    * Multi-model agent routing:
-   * - cheapModelId: used for conversation summarization (token saver)
-   * - codingModelId: preferred for tool-heavy coding (future use)
+   * - cheapModelId: conversation summarization / compress (token saver)
+   * - codingModelId: agent tool loop (strong coding model); omit = active model
    */
   agentRouting?: {
     cheapModelId?: string;

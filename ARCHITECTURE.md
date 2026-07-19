@@ -28,20 +28,20 @@
 ```
 
 ### Token cost control
-1. Per-model **context strategy**: minimal | balanced | full  
+1. Per-model **context strategy**: minimal | balanced | full | cache_max  
 2. **Packer** keeps system + last user + newest turns under budget; truncates tools  
-3. **agentRouting.cheapModelId** for LLM summary when still over threshold  
-4. UI shows **~N tok** from `pack_stats` events  
+3. **agentRouting**: `cheapModelId` (summary) + `codingModelId` (agent/tools); session prompt cache  
+4. UI shows **~N tok**, cache hits, and which model ran from `pack_stats` / `agent_routing`
 
 ### Multi-provider
 `resolveCaps` + `requestAdapter` handle OpenAI / Anthropic Messages / Ollama, CN vendors, reasoning models (`max_completion_tokens`, no temperature), system-role folding, auth styles.
 
 ### Version
-- **Current:** 2.5.5 (2026-07-19)
+- **Current:** 2.5.6 (2026-07-19)
 - Tags follow `vMAJOR.MINOR.PATCH` (and historical `v2.0.0-alpha.N`)
 
 ### Future work (see README Roadmap)
-Task-based multi-model routing · React Context store · plugin hooks runtime · skill hot-reload · E2E tests · optional keychain.  
+Diff preview / apply workflow · Task board ↔ agent loop · React Context store · plugin hooks · skill hot-reload · E2E tests · optional keychain.  
 **Not planned:** VS Code extension (Claude Code–style skills/plugins instead).
 
 ---

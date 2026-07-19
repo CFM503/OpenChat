@@ -125,6 +125,21 @@ export interface PackStats {
   completionTokens?: number;
   cacheHitRate?: number;
   totalCachedTokens?: number;
+  agentModelId?: string;
+  agentModelName?: string;
+  summaryModelId?: string;
+  summaryModelName?: string;
+}
+
+export interface AgentRoutingInfo {
+  primaryModelId: string;
+  primaryModelName: string;
+  agentModelId: string;
+  agentModelName: string;
+  summaryModelId: string;
+  summaryModelName: string;
+  agentIsOverride?: boolean;
+  summaryIsSeparate?: boolean;
 }
 
 const STALE_WARN_MS = 25_000;
@@ -172,6 +187,7 @@ export function useChat(opts: {
     startedAt: Date.now(),
   });
   const [lastPackStats, setLastPackStats] = useState<PackStats | null>(null);
+  const [lastAgentRouting, setLastAgentRouting] = useState<AgentRoutingInfo | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -576,6 +592,10 @@ export function useChat(opts: {
             // Later pack_stats (usage) merge over earlier ones
             setLastPackStats(prev => (prev ? { ...prev, ...stats } : stats));
           },
+          onAgentRouting: r => {
+            touchEvent();
+            setLastAgentRouting(r);
+          },
           onProgress: p => {
             touchEvent();
             applyServerProgress(p.stage, p.message, p.percent);
@@ -796,6 +816,7 @@ export function useChat(opts: {
     isStreaming,
     activity,
     lastPackStats,
+    lastAgentRouting,
     messagesRef,
     streamAbortRef,
     handleSendMessage,

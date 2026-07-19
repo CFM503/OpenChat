@@ -14,6 +14,8 @@ export interface ProgressEvent {
   message: string;
   round?: number;
   percent?: number;
+  modelId?: string;
+  modelName?: string;
 }
 
 export interface PackStatsPayload {
@@ -35,6 +37,21 @@ export interface PackStatsPayload {
   completionTokens?: number;
   cacheHitRate?: number;
   totalCachedTokens?: number;
+  agentModelId?: string;
+  agentModelName?: string;
+  summaryModelId?: string;
+  summaryModelName?: string;
+}
+
+export interface AgentRoutingPayload {
+  primaryModelId: string;
+  primaryModelName: string;
+  agentModelId: string;
+  agentModelName: string;
+  summaryModelId: string;
+  summaryModelName: string;
+  agentIsOverride?: boolean;
+  summaryIsSeparate?: boolean;
 }
 
 interface StreamCallbacks {
@@ -42,6 +59,7 @@ interface StreamCallbacks {
   onThinking: (text: string) => void;
   onToolEvent: (event: ToolEvent) => void;
   onPackStats?: (stats: PackStatsPayload) => void;
+  onAgentRouting?: (r: AgentRoutingPayload) => void;
   onProgress?: (p: ProgressEvent) => void;
   onDone: () => void;
   onError: (message: string) => void;
@@ -201,6 +219,22 @@ class BackendClient {
           completionTokens: msg.completionTokens,
           cacheHitRate: msg.cacheHitRate,
           totalCachedTokens: msg.totalCachedTokens,
+          agentModelId: msg.agentModelId,
+          agentModelName: msg.agentModelName,
+          summaryModelId: msg.summaryModelId,
+          summaryModelName: msg.summaryModelName,
+        });
+        break;
+      case 'agent_routing':
+        this.callbacks.onAgentRouting?.({
+          primaryModelId: msg.primaryModelId,
+          primaryModelName: msg.primaryModelName,
+          agentModelId: msg.agentModelId,
+          agentModelName: msg.agentModelName,
+          summaryModelId: msg.summaryModelId,
+          summaryModelName: msg.summaryModelName,
+          agentIsOverride: msg.agentIsOverride,
+          summaryIsSeparate: msg.summaryIsSeparate,
         });
         break;
       case 'progress':
@@ -209,6 +243,8 @@ class BackendClient {
           message: msg.message,
           round: msg.round,
           percent: msg.percent,
+          modelId: msg.modelId,
+          modelName: msg.modelName,
         });
         break;
       case 'done':
