@@ -55,17 +55,20 @@ export function normalizeEndpoint(url: string): string {
 /**
  * Default model configurations
  */
+/** Built-in starter models — tuned for cache savings + coding (see OPENCHAT_CONFIG_DEFAULTS). */
 export const DEFAULT_MODELS: ModelConfig[] = [
   {
     id: 'gpt-4o',
     name: 'GPT-4o (OpenAI)',
     provider: 'openai',
-    endpoint: 'https://api.openai.com/v1/chat/completions',
+    endpoint: 'https://api.openai.com/v1',
     apiKey: '',
     model: 'gpt-4o',
-    maxTokens: 131072,
-    temperature: 0.7,
+    maxTokens: 8192,
+    temperature: 0.4,
     isDefault: true,
+    contextWindow: 128000,
+    contextStrategy: 'cache_max',
   },
   {
     id: 'ollama-llama3',
@@ -73,9 +76,13 @@ export const DEFAULT_MODELS: ModelConfig[] = [
     provider: 'ollama',
     endpoint: 'http://localhost:11434/api/chat',
     model: 'llama3',
-    maxTokens: 131072,
-    temperature: 0.7,
+    maxTokens: 4096,
+    temperature: 0.5,
     isDefault: false,
+    contextWindow: 32000,
+    contextStrategy: 'balanced',
+    apiStyle: 'ollama',
+    tokenParam: 'num_predict',
   },
 ];
 

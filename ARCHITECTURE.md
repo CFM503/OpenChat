@@ -37,7 +37,7 @@
 `resolveCaps` + `requestAdapter` handle OpenAI / Anthropic Messages / Ollama, CN vendors, reasoning models (`max_completion_tokens`, no temperature), system-role folding, auth styles.
 
 ### Version
-- **Current:** 2.5.7 (2026-07-19)
+- **Current:** 2.5.8 (2026-07-19)
 - Tags follow `vMAJOR.MINOR.PATCH` (and historical `v2.0.0-alpha.N`)
 
 ### Future work (see README Roadmap)

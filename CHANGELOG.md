@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.8] - 2026-07-19
+
+### Changed
+- **Recommended defaults are now global product defaults**
+  - `defaultContextStrategy: cache_max` (cloud models); local/Ollama models default to `balanced`
+  - `requireFileApply: true` — stage file writes for Apply unless explicitly disabled
+  - `chatTaskBridge: true` — chat turns link to Task Board unless disabled
+  - Config `load()` / `save()` run through `withConfigDefaults()` so omitted fields get recommendations
+  - Auto-pick `agentRouting.cheapModelId` / `codingModelId` from the model list when unset (flash/mini vs claude/deepseek/gpt-4 heuristics)
+  - Built-in `DEFAULT_MODELS`: GPT-4o uses 8192 max output, temp 0.4, cache_max; Ollama Llama3 uses balanced / 4096 / 0.5
+  - Provider gateway applies `cache_max` when a model has no context strategy
+
+---
+
 ## [2.5.7] - 2026-07-19
 
 ### Added

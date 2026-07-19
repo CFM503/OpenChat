@@ -239,9 +239,10 @@ export class ProviderGateway {
     } else {
       model = cfg.models?.find(m => m.isDefault) ?? cfg.models?.[0];
     }
-    // Apply global default context strategy if model omits it
-    if (model && !model.contextStrategy && cfg.defaultContextStrategy) {
-      return { ...model, contextStrategy: cfg.defaultContextStrategy };
+    // Apply global default context strategy if model omits it (product default: cache_max)
+    if (model && !model.contextStrategy) {
+      const strategy = cfg.defaultContextStrategy || 'cache_max';
+      return { ...model, contextStrategy: strategy };
     }
     return model;
   }

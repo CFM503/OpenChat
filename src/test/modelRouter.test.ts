@@ -73,7 +73,7 @@ describe('ModelRouter Gateway', () => {
       const body = JSON.parse(req.init.body as string);
       expect(body.model).toBe('llama3');
       expect(body.stream).toBe(false);
-      expect(body.options.temperature).toBe(0.7);
+      expect(body.options.temperature).toBe(0.5);
     }
   });
 

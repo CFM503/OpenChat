@@ -41,6 +41,84 @@ export interface OpenChatConfig {
   chatTaskBridge?: boolean;
 }
 
+/**
+ * Recommended product defaults (cache hit rate + token cost + safe apply).
+ * Applied whenever a field is omitted — explicit user values always win.
+ */
+export const OPENCHAT_CONFIG_DEFAULTS = {
+  defaultContextStrategy: 'cache_max' as const,
+  requireFileApply: true,
+  chatTaskBridge: true,
+};
+
+const CHEAP_MODEL_RE = /mini|flash|haiku|lite|small|nano|fast|turbo|tiny|3\.5|3-5/i;
+const CODING_MODEL_RE = /claude|sonnet|opus|deepseek|gpt-4|gpt-5|coder|codex|qwen-max|qwen-plus|v3|reasoner|o3|o4/i;
+/** Heuristic: pick cheap + coding model ids from the list when routing is unset. */
+export function autoPickAgentRouting(
+  models: ModelConfig[] | undefined,
+  activeModelId?: string,
+): { cheapModelId?: string; codingModelId?: string } {
+  if (!models?.length) return {};
+  const active = activeModelId || models.find(m => m.isDefault)?.id || models[0]?.id;
+  const label = (m: ModelConfig) => `${m.model || ''} ${m.name || ''} ${m.id}`;
+
+  const cheap = models.find(m => m.id !== active && CHEAP_MODEL_RE.test(label(m)));
+  // Prefer a strong coding model that is not the active header model
+  const coding = models.find(
+    m =>
+      m.id !== active &&
+      CODING_MODEL_RE.test(label(m)) &&
+      !CHEAP_MODEL_RE.test(label(m)),
+  );
+
+  const out: { cheapModelId?: string; codingModelId?: string } = {};
+  if (cheap) out.cheapModelId = cheap.id;
+  if (coding) out.codingModelId = coding.id;
+  return out;
+}
+
+/** Fill recommended defaults without clobbering explicit settings. */
+export function withConfigDefaults(cfg: OpenChatConfig): OpenChatConfig {
+  const models = cfg.models?.map(m => {
+    const isLocal =
+      m.provider === 'ollama' ||
+      /11434|localhost:1234|ollama/i.test(m.endpoint || '');
+    return {
+      ...m,
+      contextStrategy:
+        m.contextStrategy ??
+        (isLocal ? ('balanced' as const) : ('cache_max' as const)),
+      // Soft defaults only when missing entirely (do not shrink user maxTokens)
+      temperature: m.temperature ?? (isLocal ? 0.5 : 0.4),
+      maxTokens: m.maxTokens && m.maxTokens > 0 ? m.maxTokens : isLocal ? 4096 : 8192,
+    };
+  });
+
+  const picked = autoPickAgentRouting(models ?? cfg.models, cfg.activeModelId);
+  const agentRouting = {
+    ...picked,
+    ...cfg.agentRouting,
+  };
+  // Drop empty routing object
+  const hasRouting = !!(agentRouting.cheapModelId || agentRouting.codingModelId);
+
+  return {
+    ...cfg,
+    models,
+    defaultContextStrategy:
+      cfg.defaultContextStrategy ?? OPENCHAT_CONFIG_DEFAULTS.defaultContextStrategy,
+    requireFileApply:
+      cfg.requireFileApply !== undefined
+        ? cfg.requireFileApply
+        : OPENCHAT_CONFIG_DEFAULTS.requireFileApply,
+    chatTaskBridge:
+      cfg.chatTaskBridge !== undefined
+        ? cfg.chatTaskBridge
+        : OPENCHAT_CONFIG_DEFAULTS.chatTaskBridge,
+    agentRouting: hasRouting ? agentRouting : cfg.agentRouting,
+  };
+}
+
 /** Sanitize error messages to strip API keys and secrets. */
 export function sanitizeError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -60,10 +138,23 @@ export class ConfigManager {
     try {
       if (fs.existsSync(this.configPath)) {
         const data = fs.readFileSync(this.configPath, 'utf-8');
-        return JSON.parse(data);
+        return withConfigDefaults(JSON.parse(data) as OpenChatConfig);
       }
     } catch {
       // Ignore parse errors
+    }
+    return withConfigDefaults({});
+  }
+
+  /** Raw file contents without defaults (for merge/save internals). */
+  private loadRaw(): OpenChatConfig {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const data = fs.readFileSync(this.configPath, 'utf-8');
+        return JSON.parse(data) as OpenChatConfig;
+      }
+    } catch {
+      /* ignore */
     }
     return {};
   }
@@ -73,7 +164,7 @@ export class ConfigManager {
   }
 
   private mergePreservingSecrets(incoming: OpenChatConfig): OpenChatConfig {
-    const existing = this.load();
+    const existing = this.loadRaw();
     const isMasked = (v: unknown) =>
       typeof v !== 'string' || v.trim() === '' || /^\*+$/.test(v.trim()) || v.includes('***');
 
@@ -104,7 +195,21 @@ export class ConfigManager {
       merged.registries = existing.registries;
     }
 
-    return merged;
+    // Preserve explicit false for safety toggles when client omits them
+    if (incoming.requireFileApply === undefined && existing.requireFileApply !== undefined) {
+      merged.requireFileApply = existing.requireFileApply;
+    }
+    if (incoming.chatTaskBridge === undefined && existing.chatTaskBridge !== undefined) {
+      merged.chatTaskBridge = existing.chatTaskBridge;
+    }
+    if (incoming.agentRouting === undefined && existing.agentRouting) {
+      merged.agentRouting = existing.agentRouting;
+    }
+    if (incoming.defaultContextStrategy === undefined && existing.defaultContextStrategy) {
+      merged.defaultContextStrategy = existing.defaultContextStrategy;
+    }
+
+    return withConfigDefaults(merged);
   }
 
   private writeAtomic(config: OpenChatConfig): void {

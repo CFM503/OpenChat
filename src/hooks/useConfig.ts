@@ -2,6 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ModelConfig, SearchProvider } from '../core/types';
 import { ModelRouter, DEFAULT_MODELS } from '../core/modelRouter';
 import { apiUrl } from '../lib/apiBase';
+import {
+  OPENCHAT_CONFIG_DEFAULTS,
+  autoPickAgentRouting,
+} from '../../server/src/configManager';
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -91,8 +95,17 @@ export function useConfig() {
             if (config.allowedDirectories) setAllowedDirectories(config.allowedDirectories);
             if (config.agentRouting?.cheapModelId) setCheapModelId(config.agentRouting.cheapModelId);
             if (config.agentRouting?.codingModelId) setCodingModelId(config.agentRouting.codingModelId);
-            if (config.requireFileApply !== undefined) setRequireFileApply(!!config.requireFileApply);
-            if (config.chatTaskBridge !== undefined) setChatTaskBridge(!!config.chatTaskBridge);
+            // Server withConfigDefaults: undefined → recommended true
+            setRequireFileApply(config.requireFileApply !== false);
+            setChatTaskBridge(config.chatTaskBridge !== false);
+
+            // If routing still empty after load, heuristic-pick from model list
+            const list = config.models || [];
+            if (list.length && !config.agentRouting?.cheapModelId && !config.agentRouting?.codingModelId) {
+              const picked = autoPickAgentRouting(list, config.activeModelId);
+              if (picked.cheapModelId) setCheapModelId(picked.cheapModelId);
+              if (picked.codingModelId) setCodingModelId(picked.codingModelId);
+            }
           }
         }
       } catch {
@@ -102,6 +115,16 @@ export function useConfig() {
       }
     })();
   }, []);
+
+  // First local-only load: apply recommended routing heuristics once models exist
+  useEffect(() => {
+    if (!isConfigLoaded || !models.length) return;
+    if (cheapModelId || codingModelId) return;
+    const picked = autoPickAgentRouting(models, activeModelId);
+    if (picked.cheapModelId) setCheapModelId(picked.cheapModelId);
+    if (picked.codingModelId) setCodingModelId(picked.codingModelId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when config ready
+  }, [isConfigLoaded]);
 
   useEffect(() => {
     if (!isConfigLoaded) return;
@@ -144,6 +167,7 @@ export function useConfig() {
             agentRouting,
             requireFileApply,
             chatTaskBridge,
+            defaultContextStrategy: OPENCHAT_CONFIG_DEFAULTS.defaultContextStrategy,
           }),
         });
       } catch (err) {
