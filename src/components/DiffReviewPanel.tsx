@@ -55,17 +55,23 @@ export function DiffReviewPanel({
           gap: 8,
         }}
       >
-        <strong style={{ fontSize: 13 }}>
-          Pending file changes ({patches.length})
-        </strong>
+        <div>
+          <strong style={{ fontSize: 13 }}>
+            待确认的文件改动（{patches.length}）
+          </strong>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            Agent 已暂存，未写入磁盘 · 请审阅后「应用」或「拒绝」
+          </div>
+        </div>
         <button
           type="button"
           className="btn-primary"
           style={{ fontSize: 12, padding: '4px 10px' }}
           disabled={busy}
           onClick={() => void onApplyAll()}
+          title="将全部暂存改动写入磁盘"
         >
-          Apply all
+          全部应用
         </button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -103,8 +109,9 @@ export function DiffReviewPanel({
                     style={{ fontSize: 11, padding: '3px 8px' }}
                     disabled={busy}
                     onClick={() => void onApply(p.id)}
+                    title="写入磁盘"
                   >
-                    Apply
+                    应用
                   </button>
                   <button
                     type="button"
@@ -112,8 +119,9 @@ export function DiffReviewPanel({
                     style={{ fontSize: 11, padding: '3px 8px', border: '1px solid var(--border-color)' }}
                     disabled={busy}
                     onClick={() => void onReject(p.id)}
+                    title="丢弃此改动"
                   >
-                    Reject
+                    拒绝
                   </button>
                 </div>
               </div>

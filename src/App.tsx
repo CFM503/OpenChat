@@ -20,6 +20,13 @@ import { useTasks } from './hooks/useTasks';
 import { usePatches } from './hooks/usePatches';
 import { usePanelLayout } from './hooks/usePanelLayout';
 import { DiffReviewPanel } from './components/DiffReviewPanel';
+import { ToastBanner, type ToastItem } from './components/ToastBanner';
+import {
+  formatPackBadge,
+  formatPackTooltip,
+  formatPackFooter,
+} from './lib/statusLabels';
+import { uid } from './lib/uid';
 
 export function App() {
   const [showModelConfig, setShowModelConfig] = useState(false);
@@ -31,6 +38,16 @@ export function App() {
     // Default ON so reasoning models keep previous behavior
     return saved === null ? true : saved === 'true';
   });
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const pushToast = useCallback((kind: ToastItem['kind'], message: string, duration?: number) => {
+    const id = uid('toast');
+    setToasts(prev => [...prev.slice(-4), { id, kind, message, duration }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('openchat_enable_thinking', String(enableThinking));
@@ -66,6 +83,7 @@ export function App() {
       onPendingPatch: p => {
         patches.upsertPatch(p);
         layout.setRightPanelCollapsed(false);
+        pushToast('info', `任务暂存文件：${p.path}`);
       },
     },
   );
@@ -91,6 +109,7 @@ export function App() {
     onPendingPatch: p => {
       patches.upsertPatch(p);
       layout.setRightPanelCollapsed(false);
+      pushToast('info', `已暂存改动：${p.path}（请在下方审阅后「应用」）`);
     },
     chatTaskBridge: config.chatTaskBridge,
     onTaskBridgeCreate: (title, description) => {
@@ -98,7 +117,14 @@ export function App() {
       workspace.setRightPanelTab('tasks');
       return tasks.createRunningTask(title, description);
     },
-    onTaskEvent: tasks.handleTaskEvent,
+    onTaskEvent: ev => {
+      tasks.handleTaskEvent(ev);
+      if (ev.action === 'complete') {
+        pushToast('success', ev.message || '任务已完成');
+      } else if (ev.action === 'fail') {
+        pushToast('error', ev.message || '任务失败');
+      }
+    },
   });
 
   const sessions = useSessions(
@@ -165,6 +191,7 @@ export function App() {
 
   return (
     <div className="app-root">
+      <ToastBanner toasts={toasts} onDismiss={dismissToast} />
       <header className="app-header">
         <div className="header-left">
           <button
@@ -234,65 +261,24 @@ export function App() {
             {chat.lastPackStats && (
               <span
                 className="logo-badge"
-                style={{ fontSize: '0.65rem', marginLeft: 8 }}
-                title={
-                  `strategy=${chat.lastPackStats.strategy}` +
-                  ` kept=${chat.lastPackStats.keptMessages}` +
-                  ` dropped=${chat.lastPackStats.droppedMessages}` +
-                  (chat.lastPackStats.agentModelName
-                    ? ` agent=${chat.lastPackStats.agentModelName}`
-                    : chat.lastAgentRouting
-                      ? ` agent=${chat.lastAgentRouting.agentModelName}`
-                      : '') +
-                  (chat.lastPackStats.summaryModelName
-                    ? ` summary=${chat.lastPackStats.summaryModelName}`
-                    : chat.lastAgentRouting
-                      ? ` summary=${chat.lastAgentRouting.summaryModelName}`
-                      : '') +
-                  (chat.lastPackStats.truncatedTools
-                    ? ` toolsTrunc=${chat.lastPackStats.truncatedTools}`
-                    : '') +
-                  (chat.lastPackStats.appendOnly ? ' appendOnly' : '') +
-                  (chat.lastPackStats.promptCacheSession ? ' sessionCache' : '') +
-                  (chat.lastPackStats.cachedTokens != null
-                    ? ` cached=${chat.lastPackStats.cachedTokens}`
-                    : '') +
-                  (chat.lastPackStats.promptTokens != null
-                    ? ` prompt=${chat.lastPackStats.promptTokens}`
-                    : '') +
-                  (chat.lastPackStats.cacheHitRate != null
-                    ? ` hit=${Math.round(chat.lastPackStats.cacheHitRate * 100)}%`
-                    : '') +
-                  (chat.lastPackStats.totalCachedTokens != null
-                    ? ` totalCached=${chat.lastPackStats.totalCachedTokens}`
-                    : '') +
-                  (chat.lastPackStats.llmCompressed
-                    ? ' llmCompressed'
-                    : chat.lastPackStats.compressed
-                      ? ' packed'
-                      : '') +
-                  (chat.lastPackStats.summaryPreview
-                    ? `\n${chat.lastPackStats.summaryPreview}`
-                    : '')
-                }
+                style={{ fontSize: '0.65rem', marginLeft: 8, maxWidth: 420 }}
+                title={formatPackTooltip(chat.lastPackStats, chat.lastAgentRouting)}
               >
-                ~{chat.lastPackStats.estimatedTokens} tok
-                {(chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName)
-                  ? ` · ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
-                  : ''}
-                {chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
-                  ? ` · cache ${chat.lastPackStats.cachedTokens}`
-                  : chat.lastPackStats.appendOnly
-                    ? ' · cache+'
-                    : ''}
-                {chat.lastPackStats.cacheHitRate != null && chat.lastPackStats.cacheHitRate > 0
-                  ? ` ${Math.round(chat.lastPackStats.cacheHitRate * 100)}%`
-                  : ''}
-                {chat.lastPackStats.llmCompressed
-                  ? ' · zip'
-                  : chat.lastPackStats.compressed
-                    ? ' · pack'
-                    : ''}
+                {formatPackBadge(chat.lastPackStats, chat.lastAgentRouting)}
+              </span>
+            )}
+            {patches.patches.length > 0 && (
+              <span
+                className="logo-badge"
+                style={{
+                  fontSize: '0.65rem',
+                  marginLeft: 6,
+                  background: 'rgba(212, 167, 44, 0.25)',
+                  borderColor: '#d4a72c',
+                }}
+                title="有文件改动待确认，请在聊天区下方审阅并应用"
+              >
+                待应用 {patches.patches.length}
               </span>
             )}
           </div>
@@ -303,9 +289,9 @@ export function App() {
             className="btn-ghost"
             onClick={() => void chat.handleCompressContext()}
             disabled={chat.isStreaming}
-            title="Compress conversation context (token budget + LLM summary)"
+            title="压缩对话历史以节省上下文（可能打断部分缓存）"
           >
-            <span>Compress</span>
+            <span>压缩</span>
           </button>
           <button className="btn-ghost" onClick={chat.handleExportChat} title="Export (Ctrl+E)">
             <span>Export</span>
@@ -399,31 +385,7 @@ export function App() {
               onReconnect={backend.reconnect}
               packStatsLabel={
                 chat.lastPackStats && !chat.isStreaming
-                  ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
-                    (chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName
-                      ? ` · agent ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
-                      : '') +
-                    (chat.lastPackStats.llmCompressed &&
-                    (chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName)
-                      ? ` · zip via ${chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName}`
-                      : '') +
-                    (chat.lastPackStats.appendOnly || chat.lastPackStats.promptCacheSession
-                      ? ' · session cache'
-                      : '') +
-                    (chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
-                      ? ` · ${chat.lastPackStats.cachedTokens} cached` +
-                        (chat.lastPackStats.cacheHitRate != null
-                          ? ` (${Math.round(chat.lastPackStats.cacheHitRate * 100)}%)`
-                          : '')
-                      : '') +
-                    (chat.lastPackStats.droppedMessages
-                      ? ` · −${chat.lastPackStats.droppedMessages} msgs`
-                      : '') +
-                    (chat.lastPackStats.llmCompressed
-                      ? ' · LLM compressed'
-                      : chat.lastPackStats.compressed
-                        ? ' · packed'
-                        : '')
+                  ? formatPackFooter(chat.lastPackStats, chat.lastAgentRouting)
                   : null
               }
               onCompressContext={chat.handleCompressContext}
@@ -433,13 +395,41 @@ export function App() {
             patches={patches.patches}
             busy={patches.busy}
             onApply={async id => {
-              const path = await patches.applyPatch(id);
-              if (path) handleAgentFileTouched(path);
+              try {
+                const path = await patches.applyPatch(id);
+                if (path) {
+                  handleAgentFileTouched(path);
+                  pushToast('success', `已写入磁盘：${path}`);
+                  const running = tasks.tasks.find(t => t.status === 'running');
+                  if (running) {
+                    tasks.handleTaskEvent({
+                      taskId: running.id,
+                      action: 'log',
+                      message: `已应用文件：${path}`,
+                      level: 'success',
+                    });
+                  }
+                }
+              } catch (e: any) {
+                pushToast('error', e?.message || '应用失败');
+              }
             }}
-            onReject={id => patches.rejectPatch(id)}
+            onReject={async id => {
+              const p = patches.patches.find(x => x.id === id);
+              await patches.rejectPatch(id);
+              pushToast('warn', p ? `已拒绝：${p.path}` : '已拒绝改动');
+            }}
             onApplyAll={async () => {
-              const applied = await patches.applyAll(sessions.activeSessionId || undefined);
-              for (const p of applied) handleAgentFileTouched(p);
+              try {
+                const applied = await patches.applyAll(sessions.activeSessionId || undefined);
+                for (const p of applied) handleAgentFileTouched(p);
+                pushToast(
+                  'success',
+                  applied.length ? `已全部应用（${applied.length} 个文件）` : '没有可应用的改动',
+                );
+              } catch (e: any) {
+                pushToast('error', e?.message || '全部应用失败');
+              }
             }}
             onOpenFile={path => handleAgentFileTouched(path)}
           />
@@ -570,7 +560,7 @@ export function App() {
                       cheap = flash/mini. Context strategy still lives under Models → Edit.
                     </p>
                     <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
-                    <h3 style={{ marginBottom: 12 }}>Safety &amp; tasks</h3>
+                    <h3 style={{ marginBottom: 12 }}>安全与任务</h3>
                     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
                       <input
                         type="checkbox"
@@ -579,11 +569,11 @@ export function App() {
                         style={{ marginTop: 3 }}
                       />
                       <span>
-                        <strong>Require Apply for file writes</strong>
+                        <strong>改文件需确认后再写入（Apply）</strong>
                         <br />
                         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                          file_write / file_edit stage a diff; nothing hits disk until you click Apply
-                          (recommended). Uncheck for auto-write (TUI / trusted automation).
+                          推荐开启。Agent 的 file_write / file_edit 先出 diff，点「应用」才写盘。
+                          TUI 全自动可关闭。
                         </span>
                       </span>
                     </label>
@@ -595,13 +585,31 @@ export function App() {
                         style={{ marginTop: 3 }}
                       />
                       <span>
-                        <strong>Chat → Task Board bridge</strong>
+                        <strong>聊天联动任务看板</strong>
                         <br />
                         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                          Each chat turn creates a Running task; tools and completion update the card.
+                          每轮对话自动建一张 Running 任务，工具与完成状态同步到看板。
+                          与右侧「Tasks」是同一套卡片，不是两套任务。
                         </span>
                       </span>
                     </label>
+                    <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
+                    <h3 style={{ marginBottom: 8 }}>推荐默认</h3>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                      一键恢复：缓存优先、改文件需 Apply、任务桥接、模型温度/策略、自动选择便宜/编码模型。
+                      <strong>不会清除 API Key</strong>。
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ fontSize: 13 }}
+                      onClick={() => {
+                        config.applyRecommendedDefaults();
+                        pushToast('success', '已应用推荐默认（缓存优先 · Apply · 任务桥接 · 路由启发式）');
+                      }}
+                    >
+                      一键恢复推荐默认
+                    </button>
                   </div>
                 )}
                 {settingsTab === 'search' && (

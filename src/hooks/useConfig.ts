@@ -206,6 +206,36 @@ export function useConfig() {
   const hasSearchKey =
     searchProvider === 'searxng' ? !!searchBaseUrl.trim() : !!searchApiKey.trim();
 
+  /**
+   * One-click: re-apply product recommended defaults (cache_max, Apply, task bridge,
+   * auto cheap/coding pick, soft model field fills). Does not wipe API keys.
+   */
+  const applyRecommendedDefaults = useCallback(() => {
+    setRequireFileApply(true);
+    setChatTaskBridge(true);
+
+    setModels(prev => {
+      const next = prev.map(m => {
+        const isLocal =
+          m.provider === 'ollama' ||
+          /11434|localhost:1234|ollama/i.test(m.endpoint || '');
+        return {
+          ...m,
+          contextStrategy: (isLocal ? 'balanced' : 'cache_max') as ModelConfig['contextStrategy'],
+          temperature: isLocal ? 0.5 : 0.4,
+          maxTokens:
+            m.maxTokens > 32_768 ? (isLocal ? 4096 : 8192) : m.maxTokens || (isLocal ? 4096 : 8192),
+          contextWindow: m.contextWindow || (isLocal ? 32_000 : 128_000),
+        };
+      });
+      modelRouterRef.current = new ModelRouter(next);
+      const picked = autoPickAgentRouting(next, activeModelId);
+      setCheapModelId(picked.cheapModelId || '');
+      setCodingModelId(picked.codingModelId || '');
+      return next;
+    });
+  }, [activeModelId]);
+
   return {
     models,
     activeModelId,
@@ -232,6 +262,7 @@ export function useConfig() {
     setRequireFileApply,
     chatTaskBridge,
     setChatTaskBridge,
+    applyRecommendedDefaults,
     isConfigLoaded,
     modelRouterRef,
     handleAddModel,

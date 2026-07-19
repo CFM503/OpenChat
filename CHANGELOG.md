@@ -11,7 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## Highlights (2.5.4 → 2.5.8)
+## [2.5.9] - 2026-07-19
+
+### Added
+- **Toast 状态提示**：暂存文件、应用/拒绝写盘、任务完成/失败时右上角中文提示
+- **顶栏「待应用 N」** 徽标：有 pending patch 时可见
+- **一键恢复推荐默认**（Settings → Agent routing）：缓存优先、Apply、任务桥接、模型温度/策略、自动 cheap/coding，不删 API Key
+- 中文状态文案：`formatPackBadge` / 页脚 / tooltip（会话缓存命中、缓存优先等）
+
+### Changed
+- Diff 面板中文化：待确认改动、应用、拒绝、全部应用
+- 压缩按钮中文标题；安全与任务设置说明更清楚（任务看板与聊天是同一套卡片）
+
+---
+
+## Highlights (2.5.4 → 2.5.9)
 
 Cost, safety, and agent workflow in one arc:
 
@@ -21,9 +35,10 @@ Cost, safety, and agent workflow in one arc:
 | **2.5.5** | Auto context window + model settings aligned for cache savings |
 | **2.5.6** | Multi-model routing — cheap summarizer + coding agent model |
 | **2.5.7** | Diff Apply before disk write + Task Board ↔ chat agent loop |
-| **2.5.8** | Recommended defaults are product defaults (see below) |
+| **2.5.8** | Recommended defaults are product defaults |
+| **2.5.9** | UX polish — Chinese status, toasts, one-click recommended defaults |
 
-**Out of the box after 2.5.8:** cloud `cache_max`, staged file Apply, chat→task bridge, optional auto cheap/coding model pick, session cache across turns.
+**Out of the box after 2.5.9:** cloud `cache_max`, staged file Apply, chat→task bridge, auto cheap/coding pick, session cache, clearer Chinese feedback.
 
 ---
 
