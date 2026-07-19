@@ -48,6 +48,11 @@ export type ClientMessage =
       enableThinking?: boolean;
       /** Force LLM history compression even if under threshold */
       forceCompress?: boolean;
+      /**
+       * UI conversation session id (ses_…). Enables server-side append-only
+       * prompt cache across user turns.
+       */
+      sessionId?: string;
     }
   /** Run pack + optional LLM compress only (no model reply); for UI /compress */
   | {
@@ -56,6 +61,7 @@ export type ClientMessage =
       modelId?: string;
       /** default true for manual compress */
       forceCompress?: boolean;
+      sessionId?: string;
     }
   | { type: 'abort' }
   | { type: 'ping' };
@@ -95,6 +101,20 @@ export type ServerMessage =
       summaryPreview?: string;
       /** Full summary text when LLM compress ran (for client history injection) */
       summary?: string;
+      /** Session used append-only prompt path (cross-turn cache) */
+      appendOnly?: boolean;
+      /** True when this request reused frozen session prefix */
+      promptCacheSession?: boolean;
+      /** Provider-reported cached input tokens (this request) */
+      cachedTokens?: number;
+      /** Provider cache write / creation tokens */
+      cacheWriteTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      /** 0–1 when computable */
+      cacheHitRate?: number;
+      /** Cumulative cached tokens in this server session */
+      totalCachedTokens?: number;
     }
   | {
       type: 'progress';

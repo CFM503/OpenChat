@@ -203,15 +203,19 @@ export function resolveModelCaps(model: ModelConfig): ResolvedModelCaps {
     inferred.contextWindow ??
     defaultContextWindow(model.provider);
 
+  // Default cache_max: maximize provider prompt-cache hits for everyday chat + coding.
+  // Local/small models that set contextStrategy via heuristics (e.g. gemma → minimal) still win.
   const contextStrategy =
     model.contextStrategy ??
     inferred.contextStrategy ??
-    'balanced';
+    'cache_max';
 
   // History budget by strategy
+  // cache_max: keep nearly full window so prefixes stay stable (provider cache discount)
   const defaultHistoryFrac =
     contextStrategy === 'minimal' ? 0.35 :
     contextStrategy === 'full' ? 0.70 :
+    contextStrategy === 'cache_max' ? 0.88 :
     0.55;
 
   const historyTokenBudget =
@@ -255,26 +259,31 @@ export function resolveModelCaps(model: ModelConfig): ResolvedModelCaps {
     toolResultMaxChars: model.toolResultMaxChars ?? (
       contextStrategy === 'minimal' ? 2_000 :
       contextStrategy === 'full' ? 12_000 :
+      contextStrategy === 'cache_max' ? 12_000 :
       4_000
     ),
     compressionThreshold: model.compressionThreshold ?? (
       contextStrategy === 'minimal' ? 0.55 :
       contextStrategy === 'full' ? 0.85 :
+      contextStrategy === 'cache_max' ? 0.92 :
       0.70
     ),
     memoryMaxChars: model.memoryMaxChars ?? (
       contextStrategy === 'minimal' ? 4_000 :
       contextStrategy === 'full' ? 20_000 :
+      contextStrategy === 'cache_max' ? 20_000 :
       10_000
     ),
     skillCatalogMode: model.skillCatalogMode ?? (
       contextStrategy === 'minimal' ? 'names' :
       contextStrategy === 'full' ? 'full' :
+      contextStrategy === 'cache_max' ? 'full' :
       'names'
     ),
     maxHistoryMessages: model.maxHistoryMessages ?? (
       contextStrategy === 'minimal' ? 8 :
       contextStrategy === 'full' ? 40 :
+      contextStrategy === 'cache_max' ? 80 :
       20
     ),
     authStyle:

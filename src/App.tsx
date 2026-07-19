@@ -215,6 +215,20 @@ export function App() {
                   (chat.lastPackStats.truncatedTools
                     ? ` toolsTrunc=${chat.lastPackStats.truncatedTools}`
                     : '') +
+                  (chat.lastPackStats.appendOnly ? ' appendOnly' : '') +
+                  (chat.lastPackStats.promptCacheSession ? ' sessionCache' : '') +
+                  (chat.lastPackStats.cachedTokens != null
+                    ? ` cached=${chat.lastPackStats.cachedTokens}`
+                    : '') +
+                  (chat.lastPackStats.promptTokens != null
+                    ? ` prompt=${chat.lastPackStats.promptTokens}`
+                    : '') +
+                  (chat.lastPackStats.cacheHitRate != null
+                    ? ` hit=${Math.round(chat.lastPackStats.cacheHitRate * 100)}%`
+                    : '') +
+                  (chat.lastPackStats.totalCachedTokens != null
+                    ? ` totalCached=${chat.lastPackStats.totalCachedTokens}`
+                    : '') +
                   (chat.lastPackStats.llmCompressed
                     ? ' llmCompressed'
                     : chat.lastPackStats.compressed
@@ -226,6 +240,14 @@ export function App() {
                 }
               >
                 ~{chat.lastPackStats.estimatedTokens} tok
+                {chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
+                  ? ` · cache ${chat.lastPackStats.cachedTokens}`
+                  : chat.lastPackStats.appendOnly
+                    ? ' · cache+'
+                    : ''}
+                {chat.lastPackStats.cacheHitRate != null && chat.lastPackStats.cacheHitRate > 0
+                  ? ` ${Math.round(chat.lastPackStats.cacheHitRate * 100)}%`
+                  : ''}
                 {chat.lastPackStats.llmCompressed
                   ? ' · zip'
                   : chat.lastPackStats.compressed
@@ -337,6 +359,15 @@ export function App() {
             packStatsLabel={
               chat.lastPackStats && !chat.isStreaming
                 ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
+                  (chat.lastPackStats.appendOnly || chat.lastPackStats.promptCacheSession
+                    ? ' · session cache'
+                    : '') +
+                  (chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
+                    ? ` · ${chat.lastPackStats.cachedTokens} cached` +
+                      (chat.lastPackStats.cacheHitRate != null
+                        ? ` (${Math.round(chat.lastPackStats.cacheHitRate * 100)}%)`
+                        : '')
+                    : '') +
                   (chat.lastPackStats.droppedMessages
                     ? ` · −${chat.lastPackStats.droppedMessages} msgs`
                     : '') +

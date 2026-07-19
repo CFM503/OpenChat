@@ -7,7 +7,7 @@
 export type ModelProvider = 'openai' | 'ollama' | 'custom';
 export type ApiStyle = 'openai' | 'ollama' | 'anthropic';
 export type TokenParamStyle = 'max_tokens' | 'max_completion_tokens' | 'num_predict' | 'none';
-export type ContextStrategy = 'full' | 'balanced' | 'minimal';
+export type ContextStrategy = 'full' | 'balanced' | 'minimal' | 'cache_max';
 
 export interface ModelConfig {
   id: string;

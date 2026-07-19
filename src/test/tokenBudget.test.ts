@@ -115,6 +115,42 @@ describe('packConversation', () => {
     expect(n).toBe(1);
     expect((msgs[1].content as string).length).toBeLessThan(200);
   });
+
+  it('keeps static system free of priorSummary (cache-stable prefix)', () => {
+    const result = packConversation({
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'hi' },
+        { role: 'user', content: 'next' },
+      ],
+      systemParts: ['STATIC_CORE_V1', 'ENV_BLOCK'],
+      model: baseModel({ contextStrategy: 'cache_max', contextWindow: 32_000 }),
+      priorSummary: 'User discussed auth refactor.',
+    });
+    const systems = result.messages.filter(m => m.role === 'system');
+    expect(systems.length).toBeGreaterThanOrEqual(2);
+    expect(systems[0].content).toContain('STATIC_CORE_V1');
+    expect(systems[0].content).not.toContain('auth refactor');
+    expect(systems[1].content).toContain('auth refactor');
+  });
+
+  it('writeOnceTools does not re-truncate already truncated tool output', () => {
+    const already =
+      'AAAA' + '\n…[tool output truncated to 4 chars for token budget]';
+    const msgs = [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', tool_call_id: '1', content: already },
+    ];
+    const n = truncateToolResults(msgs, 4, true);
+    expect(n).toBe(0);
+    expect(msgs[1].content).toBe(already);
+  });
+
+  it('cache_max resolveCaps uses high compression threshold', () => {
+    const caps = resolveModelCaps(baseModel({ contextStrategy: 'cache_max', contextWindow: 100_000 }));
+    expect(caps.compressionThreshold).toBeGreaterThanOrEqual(0.9);
+    expect(caps.maxHistoryMessages).toBeGreaterThanOrEqual(40);
+  });
 });
 
 describe('packSkillCatalog', () => {

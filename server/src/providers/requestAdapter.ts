@@ -44,18 +44,27 @@ function anthropicMessagesUrl(endpoint: string): string {
 }
 
 /**
- * Fold system messages into a single system string + remaining messages
+ * Fold system messages into system string(s) + remaining messages
  * for Anthropic, or fold into first user if model lacks system role.
+ *
+ * Multiple leading system messages are preserved as ordered blocks so
+ * static prefix (tools + first system) can stay cache-stable while a
+ * second dynamic system (summary) changes.
  */
 export function adaptMessagesForModel(
   messages: Record<string, any>[],
   model: ModelConfig,
-): { system?: string; messages: Record<string, any>[] } {
+): {
+  system?: string;
+  /** Ordered system blocks (static first, dynamic next) for cache breakpoints */
+  systemBlocks?: string[];
+  messages: Record<string, any>[];
+} {
   const caps = resolveModelCaps(model);
   const systemParts: string[] = [];
   let rest = [...messages];
 
-  // Extract system
+  // Extract system (preserve order — first block is treated as static/cacheable)
   rest = rest.filter(m => {
     if (m.role === 'system') {
       const c = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
@@ -66,10 +75,11 @@ export function adaptMessagesForModel(
   });
 
   const system = systemParts.join('\n\n') || undefined;
+  const systemBlocks = systemParts.length ? systemParts : undefined;
 
   if (caps.apiStyle === 'anthropic') {
     // Anthropic wants system separate; messages only user/assistant/tool
-    return { system, messages: convertToAnthropicMessages(rest) };
+    return { system, systemBlocks, messages: convertToAnthropicMessages(rest) };
   }
 
   if (!caps.supportsSystemRole && system) {
@@ -98,7 +108,19 @@ export function adaptMessagesForModel(
   }
 
   if (system) {
-    return { messages: [{ role: 'system', content: system }, ...rest] };
+    // Keep separate system messages when multiple blocks exist so OpenAI-compatible
+    // prefix caches can share the first system message across turns.
+    if (systemParts.length > 1) {
+      return {
+        system,
+        systemBlocks,
+        messages: [
+          ...systemParts.map(content => ({ role: 'system' as const, content })),
+          ...rest,
+        ],
+      };
+    }
+    return { system, systemBlocks, messages: [{ role: 'system', content: system }, ...rest] };
   }
   return { messages: rest };
 }
@@ -373,7 +395,24 @@ export function buildCompletionRequest(
       max_tokens: model.maxTokens || 4096,
       stream,
     };
-    if (adapted.system) body.system = adapted.system;
+    // Prompt-cache breakpoints: mark static system (first block) + last tool as ephemeral
+    const blocks = adapted.systemBlocks?.filter(Boolean) ?? (adapted.system ? [adapted.system] : []);
+    if (blocks.length === 1) {
+      body.system = [
+        {
+          type: 'text',
+          text: blocks[0],
+          cache_control: { type: 'ephemeral' },
+        },
+      ];
+    } else if (blocks.length > 1) {
+      body.system = blocks.map((text, i) => ({
+        type: 'text',
+        text,
+        // Cache static prefix; dynamic summary block stays uncached so it can change cheaply
+        ...(i === 0 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+      }));
+    }
     if (caps.supportsTemperature && caps.reasoningMode === 'none') {
       body.temperature = model.temperature;
     }
@@ -382,11 +421,18 @@ export function buildCompletionRequest(
     if (model.stopSequences?.length) body.stop_sequences = model.stopSequences;
 
     if (params.tools?.length && caps.supportsTools) {
-      body.tools = params.tools.map(t => ({
-        name: t.function.name,
-        description: t.function.description,
-        input_schema: t.function.parameters || { type: 'object', properties: {} },
-      }));
+      body.tools = params.tools.map((t, i, arr) => {
+        const tool: Record<string, unknown> = {
+          name: t.function.name,
+          description: t.function.description,
+          input_schema: t.function.parameters || { type: 'object', properties: {} },
+        };
+        // Last tool carries cache_control so the whole tools array is a cache prefix
+        if (i === arr.length - 1) {
+          tool.cache_control = { type: 'ephemeral' };
+        }
+        return tool;
+      });
     }
 
     applyThinkingPreference(body, model, params.enableThinking, 'anthropic');
@@ -432,6 +478,11 @@ export function buildCompletionRequest(
     messages: adapted.messages,
     stream,
   };
+
+  // Ask OpenAI-compatible gateways to emit usage (incl. cached tokens) on the stream
+  if (stream) {
+    body.stream_options = { include_usage: true };
+  }
 
   // Output token limit — pure reasoners with tiny max_tokens often burn the
   // whole budget on CoT and never emit content. Soft floor only when too low.

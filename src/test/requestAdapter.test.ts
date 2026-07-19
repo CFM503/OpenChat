@@ -84,9 +84,39 @@ describe('buildCompletionRequest', () => {
     expect(req.apiStyle).toBe('anthropic');
     expect(req.url).toContain('/messages');
     expect(req.headers['x-api-key']).toBe('sk-test');
-    expect(req.body.system).toBe('Be helpful');
+    // System is content blocks with cache_control on the static prefix
+    expect(Array.isArray(req.body.system)).toBe(true);
+    const sysBlocks = req.body.system as Array<{ type: string; text: string; cache_control?: { type: string } }>;
+    expect(sysBlocks[0].text).toBe('Be helpful');
+    expect(sysBlocks[0].cache_control).toEqual({ type: 'ephemeral' });
     expect(Array.isArray(req.body.tools)).toBe(true);
     expect((req.body.tools as any[])[0].name).toBe('bash');
+    expect((req.body.tools as any[])[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('anthropic: only first system block gets cache_control when multiple', () => {
+    const req = buildCompletionRequest(
+      {
+        ...openaiModel,
+        endpoint: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet-4-20250514',
+        apiStyle: 'anthropic',
+        authStyle: 'anthropic-x-api-key',
+      },
+      {
+        messages: [
+          { role: 'system', content: 'STATIC' },
+          { role: 'system', content: 'DYNAMIC summary' },
+          { role: 'user', content: 'hi' },
+        ],
+      },
+    );
+    const sysBlocks = req.body.system as Array<{ text: string; cache_control?: { type: string } }>;
+    expect(sysBlocks).toHaveLength(2);
+    expect(sysBlocks[0].text).toBe('STATIC');
+    expect(sysBlocks[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(sysBlocks[1].text).toContain('DYNAMIC');
+    expect(sysBlocks[1].cache_control).toBeUndefined();
   });
 });
 

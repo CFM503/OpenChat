@@ -117,6 +117,14 @@ export interface PackStats {
   summaryChars?: number;
   summaryPreview?: string;
   summary?: string;
+  appendOnly?: boolean;
+  promptCacheSession?: boolean;
+  cachedTokens?: number;
+  cacheWriteTokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  cacheHitRate?: number;
+  totalCachedTokens?: number;
 }
 
 const STALE_WARN_MS = 25_000;
@@ -333,7 +341,7 @@ export function useChat(opts: {
       if (content.trim().length === 0 && (!attachments || attachments.length === 0)) return;
 
       setPhase('connecting', 'Preparing session…');
-      await opts.ensureSessionRef.current();
+      const sessionId = await opts.ensureSessionRef.current();
 
       const userMsg: ChatMessage = {
         id: uid('msg'),
@@ -565,7 +573,8 @@ export function useChat(opts: {
           },
           onPackStats: stats => {
             touchEvent();
-            setLastPackStats(stats);
+            // Later pack_stats (usage) merge over earlier ones
+            setLastPackStats(prev => (prev ? { ...prev, ...stats } : stats));
           },
           onProgress: p => {
             touchEvent();
@@ -579,7 +588,10 @@ export function useChat(opts: {
             finishStream({ error: true });
           },
           },
-          { enableThinking: opts.enableThinking },
+          {
+            enableThinking: opts.enableThinking,
+            sessionId: sessionId || undefined,
+          },
         );
         return sent;
       };
@@ -712,6 +724,7 @@ export function useChat(opts: {
 
     let finalStats: PackStats | null = null;
 
+    const sessionId = await opts.ensureSessionRef.current();
     const sent = await backendClient.compressContext(
       outbound,
       opts.activeModelId,
@@ -719,7 +732,7 @@ export function useChat(opts: {
         onPackStats: stats => {
           touchEvent();
           finalStats = stats;
-          setLastPackStats(stats);
+          setLastPackStats(prev => (prev ? { ...prev, ...stats } : stats));
         },
         onProgress: p => {
           touchEvent();
@@ -768,7 +781,7 @@ export function useChat(opts: {
           ]);
         },
       },
-      { forceCompress: true },
+      { forceCompress: true, sessionId: sessionId || undefined },
     );
 
     if (!sent) {

@@ -13,8 +13,11 @@ export type TokenParamStyle =
   | 'num_predict'             // Ollama (handled in options)
   | 'none';                   // omit (provider decides)
 
-/** How aggressively we shrink history before each call */
-export type ContextStrategy = 'full' | 'balanced' | 'minimal';
+/**
+ * How aggressively we shrink history before each call.
+ * `cache_max` = maximize provider prompt-cache hits (append-only, rare compress).
+ */
+export type ContextStrategy = 'full' | 'balanced' | 'minimal' | 'cache_max';
 
 export type ModelProvider = 'openai' | 'ollama' | 'custom';
 

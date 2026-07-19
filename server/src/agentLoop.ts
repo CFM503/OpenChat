@@ -17,6 +17,16 @@ import {
   formatPackStats,
   estimateMessageTokens,
 } from './context/tokenBudget.js';
+import {
+  promptCacheStore,
+  modelCacheKey,
+  extractLatestTurn,
+  countUserMessages,
+  addUsage,
+  cacheHitRate,
+  type TokenUsageSnapshot,
+  type PromptCacheState,
+} from './context/promptCacheSession.js';
 import { resolveModelCaps } from './providers/resolveCaps.js';
 import type { ModelConfig } from './providers/modelTypes.js';
 import { promoteThinkingToAnswer } from './context/promoteAnswer.js';
@@ -45,6 +55,8 @@ export interface AgentLoopParams {
   enableThinking?: boolean;
   /** Force LLM history compression even if under threshold */
   forceCompress?: boolean;
+  /** UI conversation session id — enables cross-turn append-only prompt cache */
+  conversationSessionId?: string;
 }
 
 export interface CompressOnlyParams {
@@ -54,6 +66,7 @@ export interface CompressOnlyParams {
   onEvent: (event: ServerMessage) => void;
   /** default true for manual /compress */
   forceCompress?: boolean;
+  conversationSessionId?: string;
 }
 
 export class AgentLoop {
@@ -94,7 +107,8 @@ export class AgentLoop {
    * Pack + optional LLM compress only (no agent reply). Used by Web/TUI /compress.
    */
   async compressOnly(params: CompressOnlyParams): Promise<void> {
-    const { messages, modelId, signal, onEvent, forceCompress = true } = params;
+    const { messages, modelId, signal, onEvent, forceCompress = true, conversationSessionId } =
+      params;
     const model = this.providers.getActiveModel(modelId);
     if (!model) {
       onEvent({ type: 'error', message: 'No active model configured' });
@@ -119,14 +133,40 @@ export class AgentLoop {
         onEvent({ type: 'done' });
         return;
       }
-      await this.packAndCompress({
+      const packResult = await this.packAndCompress({
         convMessages: prepared.convMessages,
         systemParts: prepared.systemParts,
+        dynamicNotes: prepared.dynamicNotes,
         model,
         onEvent,
         forceCompress,
         signal,
       });
+      // Reset session prompt cache to compressed transcript so later turns stay append-only
+      if (conversationSessionId && packResult.packed.messages.length) {
+        const caps = resolveModelCaps(model);
+        const toolsDisabled = model.disableTools === true || !caps.supportsTools;
+        const prev = promptCacheStore.get(conversationSessionId);
+        promptCacheStore.set(
+          promptCacheStore.createFresh({
+            sessionKey: conversationSessionId,
+            modelKey: modelCacheKey(model),
+            thinkingKey: 'on',
+            systemParts: prepared.systemParts,
+            dynamicNotes: prepared.dynamicNotes,
+            priorSummary: packResult.runSummary,
+            toolDefs: toolsDisabled ? [] : registry.toFunctionDefinitions(),
+            llmMessages: packResult.packed.messages,
+            clientUserCount: countUserMessages(messages),
+          }),
+        );
+        // Preserve cumulative usage counters if any
+        if (prev?.totalUsage) {
+          const s = promptCacheStore.get(conversationSessionId)!;
+          s.totalUsage = prev.totalUsage;
+          promptCacheStore.set(s);
+        }
+      }
     } catch (err: any) {
       onEvent({ type: 'error', message: err?.message || String(err) });
     }
@@ -134,7 +174,15 @@ export class AgentLoop {
   }
 
   async run(params: AgentLoopParams): Promise<void> {
-    const { messages, modelId, signal, onEvent, enableThinking, forceCompress } = params;
+    const {
+      messages,
+      modelId,
+      signal,
+      onEvent,
+      enableThinking,
+      forceCompress,
+      conversationSessionId,
+    } = params;
 
     const model = this.providers.getActiveModel(modelId);
     if (!model) {
@@ -144,32 +192,152 @@ export class AgentLoop {
     }
     const caps = resolveModelCaps(model);
     const toolsDisabled = model.disableTools === true || !caps.supportsTools;
-    const toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
+    const mKey = modelCacheKey(model);
+    const thinkingKey: 'on' | 'off' = enableThinking === false ? 'off' : 'on';
+    const userCount = countUserMessages(messages);
 
-    const prepared = await this.prepareConversation(messages, model, {
-      enableThinking,
-      onEvent,
-      signal,
-    });
-    const { convMessages, systemParts } = prepared;
+    // Per-run usage from provider stream (prompt cache hit metrics)
+    let turnUsage: TokenUsageSnapshot = {
+      promptTokens: 0,
+      completionTokens: 0,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+    };
 
-    const sessionId = `session_${crypto.randomUUID()}`;
+    let toolDefs: Array<{ type: 'function'; function: any }> = toolsDisabled
+      ? []
+      : registry.toFunctionDefinitions();
+    let systemParts: string[] = [];
+    let dynamicNotes: string[] = [];
+    let runSummary: string | undefined;
+    let llmMessagesPacked: Record<string, any>[] = [];
+    let promptCacheSession = false;
+    let appendOnly = false;
+    let sessionState: PromptCacheState | undefined;
+
+    const existing =
+      conversationSessionId && !forceCompress
+        ? promptCacheStore.get(conversationSessionId)
+        : undefined;
+
+    // Only append when there is a *new* user turn (strictly more users than last run).
+    // Equal count = retry / reconnect → full rebuild to avoid duplicating the same user msg.
+    const canAppend =
+      !!existing &&
+      existing.modelKey === mKey &&
+      existing.thinkingKey === thinkingKey &&
+      existing.llmMessages.length > 0 &&
+      userCount > existing.clientUserCount;
+
+    if (canAppend && existing) {
+      // ── Hot path: append only the latest user turn (cross-turn prompt cache) ──
+      promptCacheSession = true;
+      appendOnly = true;
+      sessionState = existing;
+      toolDefs = existing.toolDefs;
+      systemParts = existing.systemParts;
+      dynamicNotes = existing.dynamicNotes;
+      runSummary = existing.priorSummary;
+
+      onEvent({
+        type: 'progress',
+        stage: 'packing',
+        message: '会话缓存命中：只追加本轮消息…',
+        percent: 28,
+      });
+
+      const turn = extractLatestTurn(messages) as ChatMessage[];
+      const turnLlm = this.toLlmMessages(turn);
+      const toAppend: Record<string, any>[] = [];
+      for (const m of turnLlm) {
+        if (m.role === 'system') {
+          const c = typeof m.content === 'string' ? m.content : '';
+          if (c.trim()) {
+            toAppend.push({ role: 'user', content: `[Context note]\n${c}` });
+          }
+        } else {
+          toAppend.push(m);
+        }
+      }
+
+      llmMessagesPacked = [...existing.llmMessages, ...toAppend];
+
+      // Emergency re-pack only when near context window
+      const est = llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0);
+      const hard = Math.floor(caps.contextWindow * 0.95);
+      if (est > hard) {
+        appendOnly = false;
+        onEvent({
+          type: 'progress',
+          stage: 'packing',
+          message: '上下文接近上限，整理后继续（可能降低缓存命中）…',
+          percent: 32,
+        });
+        const re = packConversation({
+          messages: llmMessagesPacked.filter(m => m.role !== 'system'),
+          systemParts,
+          dynamicNotes,
+          model,
+          priorSummary: runSummary,
+          writeOnceTools: true,
+        });
+        llmMessagesPacked = re.messages;
+        this.emitPackStats(onEvent, re, {
+          appendOnly: false,
+          promptCacheSession: true,
+        });
+      } else {
+        const kept = llmMessagesPacked.filter(m => m.role !== 'system').length;
+        onEvent({
+          type: 'pack_stats',
+          estimatedTokens: est,
+          strategy: caps.contextStrategy,
+          keptMessages: kept,
+          droppedMessages: 0,
+          appendOnly: true,
+          promptCacheSession: true,
+        });
+        console.log(
+          `[agentLoop] session append-only: est≈${est} users=${userCount} (prompt cache)`,
+        );
+      }
+    } else {
+      // ── Cold path: full prepare + pack (first turn / model switch / compress) ──
+      if (conversationSessionId && forceCompress) {
+        promptCacheStore.delete(conversationSessionId);
+      }
+      toolDefs = toolsDisabled ? [] : registry.toFunctionDefinitions();
+
+      const prepared = await this.prepareConversation(messages, model, {
+        enableThinking,
+        onEvent,
+        signal,
+      });
+      systemParts = prepared.systemParts;
+      dynamicNotes = prepared.dynamicNotes;
+
+      const packResult = await this.packAndCompress({
+        convMessages: prepared.convMessages,
+        systemParts,
+        dynamicNotes,
+        model,
+        onEvent,
+        forceCompress: !!forceCompress,
+        signal,
+      });
+      runSummary = packResult.runSummary;
+      llmMessagesPacked = packResult.packed.messages;
+    }
+
+    // Snapshot static system from first pack — never rewrite during tool rounds
+    const frozenSystemMessages = llmMessagesPacked.filter(m => m.role === 'system');
+
+    const sessionId = conversationSessionId || `session_${crypto.randomUUID()}`;
     const ctx: ToolContext = {
       workingDirectory: this.workingDirectory,
       sessionId,
       abortSignal: signal ?? new AbortController().signal,
     };
-
-    const packResult = await this.packAndCompress({
-      convMessages,
-      systemParts,
-      model,
-      onEvent,
-      forceCompress: !!forceCompress,
-      signal,
-    });
-    let runSummary = packResult.runSummary;
-    let llmMessagesPacked = packResult.packed.messages;
 
     const MAX_ROUNDS = 10;
     /** Any non-empty content event sent to the client this run */
@@ -182,17 +350,30 @@ export class AgentLoop {
     for (let round = 0; round < MAX_ROUNDS; round++) {
       if (signal?.aborted) break;
 
-      // Re-pack each round so tool dumps stay truncated
+      // Prompt-cache friendly: append-only after round 0.
+      // Tool outputs are truncated once at execute time — do NOT re-pack every
+      // round (that rewrote system stubs / dropped messages and busted cache).
+      // Emergency re-pack only if we are about to blow the context window.
       if (round > 0) {
-        const re = packConversation({
-          messages: llmMessagesPacked.filter(m => m.role !== 'system'),
-          systemParts,
-          model,
-          priorSummary: runSummary,
-        });
-        llmMessagesPacked = re.messages;
-        if (round === 1) {
-          console.log(`[agentLoop] round pack: est≈${re.estimatedTokens} tokens≈${llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0)}`);
+        const est = llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0);
+        const hard = Math.floor(caps.contextWindow * (caps.contextStrategy === 'cache_max' ? 0.95 : 0.92));
+        if (est > hard) {
+          const re = packConversation({
+            messages: llmMessagesPacked.filter(m => m.role !== 'system'),
+            systemParts,
+            model,
+            priorSummary: runSummary,
+            dynamicNotes,
+            writeOnceTools: true,
+          });
+          llmMessagesPacked = re.messages;
+          console.log(`[agentLoop] emergency re-pack round ${round}: est≈${re.estimatedTokens}`);
+        } else if (round === 1) {
+          console.log(`[agentLoop] append-only round: est≈${est} (no re-pack, prompt cache)`);
+        }
+        // Ensure frozen system prefix is still leading (in case of emergency re-pack it is rebuilt)
+        if (llmMessagesPacked[0]?.role !== 'system' && frozenSystemMessages.length) {
+          llmMessagesPacked = [...frozenSystemMessages, ...llmMessagesPacked.filter(m => m.role !== 'system')];
         }
       }
 
@@ -220,6 +401,15 @@ export class AgentLoop {
           signal,
           enableThinking,
         })) {
+          if (chunk.type === 'usage' && chunk.usage) {
+            turnUsage = addUsage(turnUsage, {
+              promptTokens: chunk.usage.promptTokens ?? 0,
+              completionTokens: chunk.usage.completionTokens ?? 0,
+              cachedTokens: chunk.usage.cachedTokens ?? 0,
+              cacheWriteTokens: chunk.usage.cacheWriteTokens ?? 0,
+            });
+            continue;
+          }
           if (chunk.type === 'content' && chunk.content) {
             if (firstToken) {
               firstToken = false;
@@ -478,6 +668,69 @@ export class AgentLoop {
         alreadyHasContent: false,
       });
     }
+
+    // Persist append-only transcript for next user turn (same conversation session)
+    if (conversationSessionId && !signal?.aborted) {
+      const prevUsage = sessionState?.totalUsage ?? promptCacheStore.get(conversationSessionId)?.totalUsage;
+      const totalUsage = addUsage(
+        prevUsage ?? {
+          promptTokens: 0,
+          completionTokens: 0,
+          cachedTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        turnUsage,
+      );
+      const next: PromptCacheState = {
+        sessionKey: conversationSessionId,
+        modelKey: mKey,
+        thinkingKey,
+        systemParts,
+        dynamicNotes,
+        priorSummary: runSummary,
+        toolDefs,
+        llmMessages: llmMessagesPacked,
+        clientUserCount: userCount,
+        createdAt: sessionState?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+        totalUsage,
+      };
+      promptCacheStore.set(next);
+
+      const hitRate = cacheHitRate(turnUsage);
+      onEvent({
+        type: 'pack_stats',
+        estimatedTokens: llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0),
+        strategy: caps.contextStrategy,
+        keptMessages: llmMessagesPacked.filter(m => m.role !== 'system').length,
+        droppedMessages: 0,
+        appendOnly,
+        promptCacheSession: promptCacheSession || appendOnly,
+        cachedTokens: turnUsage.cachedTokens || undefined,
+        cacheWriteTokens: turnUsage.cacheWriteTokens || undefined,
+        promptTokens: turnUsage.promptTokens || undefined,
+        completionTokens: turnUsage.completionTokens || undefined,
+        cacheHitRate: hitRate,
+        totalCachedTokens: totalUsage.cachedTokens || undefined,
+      });
+    } else if (turnUsage.promptTokens || turnUsage.cachedTokens) {
+      const hitRate = cacheHitRate(turnUsage);
+      onEvent({
+        type: 'pack_stats',
+        estimatedTokens: llmMessagesPacked.reduce((s, m) => s + estimateMessageTokens(m), 0),
+        strategy: caps.contextStrategy,
+        keptMessages: llmMessagesPacked.filter(m => m.role !== 'system').length,
+        droppedMessages: 0,
+        appendOnly,
+        promptCacheSession,
+        cachedTokens: turnUsage.cachedTokens || undefined,
+        cacheWriteTokens: turnUsage.cacheWriteTokens || undefined,
+        promptTokens: turnUsage.promptTokens || undefined,
+        completionTokens: turnUsage.completionTokens || undefined,
+        cacheHitRate: hitRate,
+      });
+    }
+
     onEvent({ type: 'done' });
   }
 
@@ -627,7 +880,11 @@ export class AgentLoop {
       onEvent: (event: ServerMessage) => void;
       signal?: AbortSignal;
     },
-  ): Promise<{ convMessages: Record<string, any>[]; systemParts: string[] }> {
+  ): Promise<{
+    convMessages: Record<string, any>[];
+    systemParts: string[];
+    dynamicNotes: string[];
+  }> {
     const caps = resolveModelCaps(model);
     const llmMessages = this.toLlmMessages(messages);
 
@@ -638,7 +895,29 @@ export class AgentLoop {
       percent: 15,
     });
 
+    // Stable order for prompt-cache prefixes (most constant first):
+    //   1) agent core  2) env  3) project memory  4) skills
+    // Client/ephemeral system notes go to dynamicNotes (second system message).
     const systemParts: string[] = [];
+
+    const agentCore =
+      'You are OpenChat, an AI coding agent with tools (bash, files, grep, git, web_search, web_fetch, skill, …). ' +
+      'Always respect the Runtime environment block for OS, shell, and absolute paths. ' +
+      'When the user says Desktop/桌面/Documents/Downloads, use those absolute paths from the environment block — ' +
+      'do not assume the project cwd is the Desktop, and do not invent wrong home paths. ' +
+      'When live facts are needed (news, weather, docs, prices, etc.), call web_search / web_fetch — do not invent data. ' +
+      'If you decide to use a tool, emit a real tool/function call; never only describe the call in reasoning. ' +
+      'After tools (or when no tool is needed), always write a clear user-facing answer. ' +
+      'Optional: for glanceable structured data, include a fenced ```canvas <kind>``` JSON block the UI can render; keep normal markdown too. ' +
+      'Call the `skill` tool when a listed skill matches. Prefer short tool outputs.' +
+      (opts.enableThinking === false
+        ? ' Be concise; do not narrate long internal reasoning in the reply.'
+        : '');
+    systemParts.push(agentCore);
+
+    // Facts about THIS machine — so Desktop/mkdir/shell commands match reality
+    systemParts.push(formatEnvContextForPrompt(buildEnvContext(this.workingDirectory)));
+
     try {
       let memory = await this.getProjectMemory();
       if (memory && memory.length > caps.memoryMaxChars) {
@@ -656,44 +935,26 @@ export class AgentLoop {
         description: e.description,
         whenToUse: e.whenToUse,
       }));
-      const catalog = packSkillCatalog(
-        entries,
-        caps.skillCatalogMode,
-        caps.contextStrategy === 'minimal' ? 600 : 2000,
-      );
+      const catalogBudget =
+        caps.contextStrategy === 'minimal' ? 600 :
+        caps.contextStrategy === 'cache_max' ? 4000 :
+        2000;
+      const catalog = packSkillCatalog(entries, caps.skillCatalogMode, catalogBudget);
       if (catalog) systemParts.push(catalog);
     }
 
-    // Facts about THIS machine — so Desktop/mkdir/shell commands match reality
-    systemParts.push(formatEnvContextForPrompt(buildEnvContext(this.workingDirectory)));
-
-    systemParts.push(
-      'You are OpenChat, an AI coding agent with tools (bash, files, grep, git, web_search, web_fetch, skill, …). ' +
-        'Always respect the Runtime environment block above for OS, shell, and absolute paths. ' +
-        'When the user says Desktop/桌面/Documents/Downloads, use those absolute paths from the environment block — ' +
-        'do not assume the project cwd is the Desktop, and do not invent wrong home paths. ' +
-        'When live facts are needed (news, weather, docs, prices, etc.), call web_search / web_fetch — do not invent data. ' +
-        'If you decide to use a tool, emit a real tool/function call; never only describe the call in reasoning. ' +
-        'After tools (or when no tool is needed), always write a clear user-facing answer. ' +
-        'Optional: for glanceable structured data, include a fenced ```canvas <kind>``` JSON block the UI can render; keep normal markdown too. ' +
-        'Call the `skill` tool when a listed skill matches. Prefer short tool outputs.' +
-        (opts.enableThinking === false
-          ? ' Be concise; do not narrate long internal reasoning in the reply.'
-          : ''),
-    );
-
-    // Extract prior client-side summary notes + system injections
     const convMessages: Record<string, any>[] = [];
+    const dynamicNotes: string[] = [];
     for (const m of llmMessages) {
       if (m.role === 'system') {
         const c = typeof m.content === 'string' ? m.content : '';
-        if (c.trim()) systemParts.push(c);
+        if (c.trim()) dynamicNotes.push(c.trim());
       } else {
         convMessages.push(m);
       }
     }
 
-    return { convMessages, systemParts };
+    return { convMessages, systemParts, dynamicNotes };
   }
 
   private emitPackStats(
@@ -702,6 +963,14 @@ export class AgentLoop {
     extra?: {
       llmCompressed?: boolean;
       summary?: string;
+      appendOnly?: boolean;
+      promptCacheSession?: boolean;
+      cachedTokens?: number;
+      cacheWriteTokens?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      cacheHitRate?: number;
+      totalCachedTokens?: number;
     },
   ): void {
     const compressed =
@@ -729,12 +998,21 @@ export class AgentLoop {
           ? summary.slice(0, 6000) + '\n…[summary truncated for client]'
           : summary
         : undefined,
+      appendOnly: extra?.appendOnly,
+      promptCacheSession: extra?.promptCacheSession,
+      cachedTokens: extra?.cachedTokens,
+      cacheWriteTokens: extra?.cacheWriteTokens,
+      promptTokens: extra?.promptTokens,
+      completionTokens: extra?.completionTokens,
+      cacheHitRate: extra?.cacheHitRate,
+      totalCachedTokens: extra?.totalCachedTokens,
     });
   }
 
   private async packAndCompress(opts: {
     convMessages: Record<string, any>[];
     systemParts: string[];
+    dynamicNotes?: string[];
     model: ModelConfig;
     onEvent: (event: ServerMessage) => void;
     forceCompress: boolean;
@@ -743,7 +1021,7 @@ export class AgentLoop {
     packed: ReturnType<typeof packConversation>;
     runSummary?: string;
   }> {
-    const { convMessages, systemParts, model, onEvent, forceCompress, signal } = opts;
+    const { convMessages, systemParts, dynamicNotes, model, onEvent, forceCompress, signal } = opts;
     const caps = resolveModelCaps(model);
 
     onEvent({
@@ -756,12 +1034,15 @@ export class AgentLoop {
     let packed = packConversation({
       messages: convMessages,
       systemParts,
+      dynamicNotes,
       model,
     });
     console.log(`[agentLoop] pack: ${formatPackStats(packed.stats)} est≈${packed.estimatedTokens}`);
     this.emitPackStats(onEvent, packed);
 
-    // LLM compression: auto when packer signals, or forced by client
+    // LLM compression: auto when packer signals, or forced by client.
+    // cache_max uses a high compressionThreshold (0.92) so this rarely fires —
+    // avoiding frequent summary rewrites that bust prompt cache.
     const allowLlmCompress =
       forceCompress ||
       (packed.needsLlmCompression &&
@@ -803,6 +1084,7 @@ export class AgentLoop {
             packed = packConversation({
               messages: result.recentMessages,
               systemParts,
+              dynamicNotes,
               model,
               priorSummary: result.summary,
             });

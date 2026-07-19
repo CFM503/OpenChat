@@ -22,7 +22,7 @@ export interface OpenChatConfig {
   mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
   registries?: string[];
   /** Global default context strategy if model omits it */
-  defaultContextStrategy?: 'full' | 'balanced' | 'minimal';
+  defaultContextStrategy?: 'full' | 'balanced' | 'minimal' | 'cache_max';
   /**
    * Multi-model agent routing:
    * - cheapModelId: used for conversation summarization (token saver)

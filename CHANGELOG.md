@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.4] - 2026-07-19
+
+### Added
+- **Session prompt cache (save money on cached tokens)**
+  - Server keeps an append-only LLM transcript per chat session (`sessionId`)
+  - Later turns only append the new user message (same model) so provider prefix/cache can hit
+  - Tool multi-rounds stay append-only (no re-pack every round)
+  - Default context strategy is **`cache_max`** (maximize cache hits)
+  - Anthropic `cache_control` breakpoints; OpenAI-compatible `stream_options.include_usage`
+  - UI shows cache hits: `cache N` / hit % / `session cache` in header + pack stats
+  - TUI passes a stable session id for the same behavior
+- **`contextStrategy: cache_max`** option in model settings (new models default to it)
+- Unit tests for prompt-cache session helpers and packer static/dynamic system split
+
+### Changed
+- System prompt layout is cache-stable: static blocks first; summary / drop stubs go in a separate dynamic system message
+- Tools and skill catalog are name-sorted for stable request prefixes
+- Default cloud model presets prefer `cache_max` where applicable
+
+---
+
 ## [2.5.3] - 2026-07-17
 
 ### Fixed

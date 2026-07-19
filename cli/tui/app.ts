@@ -74,6 +74,8 @@ export async function runTui(opts: TuiOptions): Promise<void> {
   enableWindowsVt();
   const apiBase = makeApiBase(opts.host, opts.port);
   const wsUrl = makeWsUrl(opts.host, opts.port);
+  /** Stable id for server-side append-only prompt cache across turns */
+  let tuiSessionId = `tui_${uid('ses')}`;
 
   let serverProc: ChildProcess | null = null;
   let healthOk = false;
@@ -441,6 +443,7 @@ export async function runTui(opts: TuiOptions): Promise<void> {
       messages: payloadMsgs,
       modelId,
       enableThinking,
+      sessionId: tuiSessionId,
     });
   }
 
@@ -477,6 +480,7 @@ export async function runTui(opts: TuiOptions): Promise<void> {
       case 'clear':
       case 'new':
         messages.length = 0;
+        tuiSessionId = `tui_${uid('ses')}`;
         errorBanner = undefined;
         progress = undefined;
         packStats = undefined;
@@ -663,6 +667,7 @@ export async function runTui(opts: TuiOptions): Promise<void> {
           messages: payloadMsgs,
           modelId,
           forceCompress: true,
+          sessionId: tuiSessionId,
         });
         return true;
       }

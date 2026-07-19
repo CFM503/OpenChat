@@ -56,10 +56,10 @@ export function ModelConfigPanel({
     formApiKey: '', formModel: '', formMaxTokens: 4096, formTemperature: 0.7,
     formIsDefault: false, formDisableTools: false, formUseMaxTokens: true,
     formApiStyle: '', formTokenParam: '', formContextWindow: 128000,
-    formContextStrategy: 'balanced', formTopP: '',
+    formContextStrategy: 'cache_max', formTopP: '',
     formSupportsTemperature: true, formReasoningMode: 'none',
     formStrictAlternation: false, formAuthStyle: 'bearer',
-    formSkillCatalogMode: 'names', formToolResultMaxChars: 4000,
+    formSkillCatalogMode: 'full', formToolResultMaxChars: 12000,
     formShowAdvanced: false,
   };
 
@@ -100,7 +100,7 @@ export function ModelConfigPanel({
       formApiStyle: d.apiStyle ?? '',
       formTokenParam: d.tokenParam ?? '',
       formContextWindow: d.contextWindow ?? 128000,
-      formContextStrategy: d.contextStrategy ?? 'balanced',
+      formContextStrategy: d.contextStrategy ?? 'cache_max',
       formSupportsTemperature: d.supportsTemperature ?? true,
       formReasoningMode: d.reasoningMode ?? 'none',
       formAuthStyle: d.authStyle ?? 'bearer',
@@ -169,7 +169,7 @@ export function ModelConfigPanel({
       formApiStyle: model.apiStyle ?? '',
       formTokenParam: model.tokenParam ?? '',
       formContextWindow: model.contextWindow ?? 128000,
-      formContextStrategy: model.contextStrategy ?? 'balanced',
+      formContextStrategy: model.contextStrategy ?? 'cache_max',
       formTopP: model.topP != null ? String(model.topP) : '',
       formSupportsTemperature: model.supportsTemperature ?? true,
       formReasoningMode: model.reasoningMode ?? 'none',
@@ -590,9 +590,11 @@ export function ModelConfigPanel({
               <option value="minimal">Minimal — lowest cost (short history, name-only skills)</option>
               <option value="balanced">Balanced — default (truncate tools, drop old turns)</option>
               <option value="full">Full — keep more history (higher cost)</option>
+              <option value="cache_max">Cache max — maximize prompt-cache hits (save $ on cached tokens)</option>
             </select>
             <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-              Packs system + recent turns under a budget; older turns become a compact stub or LLM summary.
+              Packs system + recent turns under a budget. “Cache max” keeps a stable prompt prefix so
+              providers (DeepSeek / Claude / OpenAI-compatible) can bill repeated tokens at cache rates.
             </span>
           </div>
 

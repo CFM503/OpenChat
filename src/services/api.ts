@@ -27,6 +27,14 @@ export interface PackStatsPayload {
   summaryChars?: number;
   summaryPreview?: string;
   summary?: string;
+  appendOnly?: boolean;
+  promptCacheSession?: boolean;
+  cachedTokens?: number;
+  cacheWriteTokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  cacheHitRate?: number;
+  totalCachedTokens?: number;
 }
 
 interface StreamCallbacks {
@@ -185,6 +193,14 @@ class BackendClient {
           summaryChars: msg.summaryChars,
           summaryPreview: msg.summaryPreview,
           summary: msg.summary,
+          appendOnly: msg.appendOnly,
+          promptCacheSession: msg.promptCacheSession,
+          cachedTokens: msg.cachedTokens,
+          cacheWriteTokens: msg.cacheWriteTokens,
+          promptTokens: msg.promptTokens,
+          completionTokens: msg.completionTokens,
+          cacheHitRate: msg.cacheHitRate,
+          totalCachedTokens: msg.totalCachedTokens,
         });
         break;
       case 'progress':
@@ -211,7 +227,7 @@ class BackendClient {
     messages: ChatMessage[],
     modelId: string | undefined,
     callbacks: StreamCallbacks,
-    options?: { enableThinking?: boolean; forceCompress?: boolean },
+    options?: { enableThinking?: boolean; forceCompress?: boolean; sessionId?: string },
   ): Promise<boolean> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       const ok = await this.connect();
@@ -226,6 +242,7 @@ class BackendClient {
       modelId,
       enableThinking: options?.enableThinking,
       forceCompress: options?.forceCompress,
+      sessionId: options?.sessionId,
     };
     this.ws!.send(JSON.stringify(msg));
     return true;
@@ -238,7 +255,7 @@ class BackendClient {
     messages: ChatMessage[],
     modelId: string | undefined,
     callbacks: Pick<StreamCallbacks, 'onPackStats' | 'onProgress' | 'onDone' | 'onError'>,
-    options?: { forceCompress?: boolean },
+    options?: { forceCompress?: boolean; sessionId?: string },
   ): Promise<boolean> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       const ok = await this.connect();
@@ -260,6 +277,7 @@ class BackendClient {
       messages,
       modelId,
       forceCompress: options?.forceCompress !== false,
+      sessionId: options?.sessionId,
     };
     this.ws!.send(JSON.stringify(msg));
     return true;

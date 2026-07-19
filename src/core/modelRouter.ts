@@ -111,7 +111,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
-    defaults: { contextWindow: 128000, tokenParam: 'max_tokens', contextStrategy: 'balanced' },
+    defaults: { contextWindow: 128000, tokenParam: 'max_tokens', contextStrategy: 'cache_max' },
   },
   {
     id: 'openai-o3',
@@ -128,7 +128,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       supportsTemperature: false,
       reasoningMode: 'enabled',
       contextWindow: 200000,
-      contextStrategy: 'balanced',
+      contextStrategy: 'cache_max',
     },
   },
   {
@@ -212,7 +212,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'sk-...',
     helpUrl: 'https://platform.deepseek.com/api_keys',
-    defaults: { contextWindow: 64000, contextStrategy: 'balanced' },
+    defaults: { contextWindow: 64000, contextStrategy: 'cache_max' },
   },
   {
     id: 'deepseek-r1',

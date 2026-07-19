@@ -78,6 +78,7 @@ export class WsClient {
     modelId?: string;
     enableThinking?: boolean;
     forceCompress?: boolean;
+    sessionId?: string;
   }): void {
     this.send({
       type: 'chat',
@@ -92,6 +93,7 @@ export class WsClient {
       modelId: opts.modelId,
       enableThinking: opts.enableThinking,
       forceCompress: opts.forceCompress,
+      sessionId: opts.sessionId,
     });
   }
 
@@ -100,6 +102,7 @@ export class WsClient {
     messages: ChatMessage[];
     modelId?: string;
     forceCompress?: boolean;
+    sessionId?: string;
   }): void {
     this.send({
       type: 'compress',
@@ -113,6 +116,7 @@ export class WsClient {
       })),
       modelId: opts.modelId,
       forceCompress: opts.forceCompress !== false,
+      sessionId: opts.sessionId,
     });
   }
 

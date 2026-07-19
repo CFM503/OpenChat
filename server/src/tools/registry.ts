@@ -26,14 +26,17 @@ export function getAll(): ToolDefinition[] {
   return Array.from(tools.values());
 }
 
-/** Returns all registered tools in OpenAI function-calling format. */
+/** Returns all registered tools in OpenAI function-calling format (name-sorted for stable prompt cache). */
 export function toFunctionDefinitions(): FunctionToolDef[] {
-  return getAll().map(tool => ({
-    type: 'function' as const,
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.inputSchema,
-    },
-  }));
+  return getAll()
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(tool => ({
+      type: 'function' as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      },
+    }));
 }

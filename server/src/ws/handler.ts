@@ -59,6 +59,7 @@ export function attachWebSocketHandlers(
               modelId: msg.modelId,
               enableThinking: msg.enableThinking,
               forceCompress: msg.forceCompress,
+              conversationSessionId: msg.sessionId,
               signal: currentAbort.signal,
               onEvent: (event) => {
                 if (ws.readyState === 1 /* OPEN */) {
@@ -111,6 +112,7 @@ export function attachWebSocketHandlers(
               messages: msg.messages,
               modelId: msg.modelId,
               forceCompress: msg.forceCompress !== false,
+              conversationSessionId: msg.sessionId,
               signal: currentAbort.signal,
               onEvent: (event) => {
                 if (ws.readyState === 1) {

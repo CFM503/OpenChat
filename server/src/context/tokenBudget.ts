@@ -9,6 +9,12 @@
 //      optional LLM compression is triggered separately when over threshold)
 //   5. Truncate tool outputs to toolResultMaxChars
 //   6. Drop empty / welcome / pure-thinking history noise
+//
+// Prompt-cache friendly layout (byte-stable prefix):
+//   [system static]  systemParts only — never includes summary/drop stub
+//   [system dynamic] priorSummary + dropStub (separate message; changes don't
+//                    rewrite the static system string)
+//   [history...]     newest-first fill; cache_max avoids mid-prefix churn
 // ============================================================================
 
 import type { ModelConfig, ResolvedModelCaps } from '../providers/modelTypes.js';
@@ -16,10 +22,18 @@ import { resolveModelCaps } from '../providers/resolveCaps.js';
 
 export interface PackInput {
   messages: Record<string, any>[];
+  /** Stable system blocks (agent core, env, memory, skills). Must not include rolling summary. */
   systemParts: string[];
   model: ModelConfig;
-  /** Precomputed rolling summary of older history (optional) */
+  /** Precomputed rolling summary of older history (optional) — placed in dynamic system msg */
   priorSummary?: string;
+  /** Extra dynamic notes (client compress injects, etc.) — never mixed into static system */
+  dynamicNotes?: string[];
+  /**
+   * When true, never rewrite message contents that already look truncated;
+   * only truncate brand-new oversized tool results. Used for append-only re-entry.
+   */
+  writeOnceTools?: boolean;
 }
 
 export interface PackResult {
@@ -88,15 +102,22 @@ function contentToString(content: unknown): string {
 
 /**
  * Truncate oversized tool results in-place (returns count truncated).
+ * When writeOnce is true, skip contents that already carry a truncation marker
+ * so re-packing never mutates bytes that were already sent to the model.
  */
 export function truncateToolResults(
   messages: Record<string, any>[],
   maxChars: number,
+  writeOnce = false,
 ): number {
   let count = 0;
   for (const m of messages) {
     if (m.role !== 'tool') continue;
-    if (typeof m.content === 'string' && m.content.length > maxChars) {
+    if (typeof m.content !== 'string') continue;
+    if (writeOnce && /\[tool output truncated|…\[truncated /.test(m.content)) {
+      continue;
+    }
+    if (m.content.length > maxChars) {
       m.content =
         m.content.slice(0, maxChars) +
         `\n…[tool output truncated to ${maxChars} chars for token budget]`;
@@ -108,6 +129,7 @@ export function truncateToolResults(
 
 /**
  * Build skill catalog text under a character budget.
+ * Entries should already be sorted by name for stable prompt cache prefixes.
  */
 export function packSkillCatalog(
   entries: Array<{ shortcut: string; name: string; description: string; whenToUse?: string }>,
@@ -115,6 +137,10 @@ export function packSkillCatalog(
   maxChars: number,
 ): string {
   if (mode === 'off' || entries.length === 0) return '';
+  // Stable order for prompt-cache prefixes
+  const sorted = entries.slice().sort((a, b) =>
+    (a.shortcut || a.name).localeCompare(b.shortcut || b.name),
+  );
   const lines = [
     '# Skills',
     mode === 'names'
@@ -123,13 +149,13 @@ export function packSkillCatalog(
     '',
   ];
   let used = lines.join('\n').length;
-  for (const e of entries) {
+  for (const e of sorted) {
     const line =
       mode === 'names'
         ? `- ${e.shortcut}`
         : `- **${e.shortcut}**: ${e.description.slice(0, 120)}${e.whenToUse ? ` (${e.whenToUse.slice(0, 80)})` : ''}`;
     if (used + line.length + 1 > maxChars) {
-      lines.push(`- …+${entries.length - lines.length + 3} more (use skill tool)`);
+      lines.push(`- …+${sorted.length - (lines.length - 3)} more (use skill tool)`);
       break;
     }
     lines.push(line);
@@ -139,36 +165,48 @@ export function packSkillCatalog(
 }
 
 /**
- * Pack messages into a token budget for lowest cost.
+ * Pack messages into a token budget for lowest cost / best cache hits.
  */
 export function packConversation(input: PackInput): PackResult {
   const caps = resolveModelCaps(input.model);
+  const cacheMax = caps.contextStrategy === 'cache_max';
   const historyBudget = caps.historyTokenBudget;
-  // Reserve ~15% of context for model output + tools this turn
+  // Reserve ~15% of context for model output + tools this turn (less for cache_max)
+  const reserveFrac = cacheMax ? 0.10 : 0.15;
   const hardCap = Math.min(
     historyBudget,
-    Math.floor(caps.contextWindow * (1 - 0.15)),
+    Math.floor(caps.contextWindow * (1 - reserveFrac)),
   );
 
-  // ── System block ──────────────────────────────────────────────────
-  let systemText = input.systemParts.filter(Boolean).join('\n\n');
-  if (systemText.length > caps.memoryMaxChars + 2000) {
-    // Prefer keeping agent core (last part) + truncated front
-    const core = input.systemParts[input.systemParts.length - 1] || '';
-    const head = input.systemParts.slice(0, -1).join('\n\n');
-    const headBudget = Math.max(500, caps.memoryMaxChars);
-    systemText =
-      (head.length > headBudget
-        ? head.slice(0, headBudget) + '\n…[project memory truncated]'
-        : head) +
-      (core ? `\n\n${core}` : '');
-  }
-  if (input.priorSummary) {
-    systemText += `\n\n# Conversation summary (older turns)\n${input.priorSummary}`;
+  // ── Static system (never includes summary / drop stub) ────────────
+  let staticSystem = input.systemParts.filter(Boolean).join('\n\n');
+  if (staticSystem.length > caps.memoryMaxChars + 2000) {
+    // Prefer keeping agent core (first part if ordered core-first) + truncated rest
+    // systemParts layout from agentLoop: [core, env, memory, skills]
+    const core = input.systemParts[0] || '';
+    const rest = input.systemParts.slice(1).join('\n\n');
+    const restBudget = Math.max(500, caps.memoryMaxChars);
+    staticSystem =
+      (core ? `${core}\n\n` : '') +
+      (rest.length > restBudget
+        ? rest.slice(0, restBudget) + '\n…[project memory truncated]'
+        : rest);
   }
 
-  const systemTokens = estimateTokens(systemText);
-  let remaining = hardCap - systemTokens;
+  // ── Dynamic system note (summary / omit stub) — separate message ──
+  const dynamicBits: string[] = [];
+  if (input.priorSummary?.trim()) {
+    dynamicBits.push(`# Conversation summary (older turns)\n${input.priorSummary.trim()}`);
+  }
+  if (input.dynamicNotes?.length) {
+    for (const note of input.dynamicNotes) {
+      if (note?.trim()) dynamicBits.push(note.trim());
+    }
+  }
+
+  const staticTokens = estimateTokens(staticSystem);
+  const dynamicTokensEst = estimateTokens(dynamicBits.join('\n\n'));
+  let remaining = hardCap - staticTokens - dynamicTokensEst;
 
   // ── Clean + truncate tools in a working copy ──────────────────────
   let working = input.messages
@@ -180,25 +218,26 @@ export function packConversation(input: PackInput): PackResult {
     })
     .map(m => ({ ...m }));
 
-  const truncatedTools = truncateToolResults(working, caps.toolResultMaxChars);
+  const truncatedTools = truncateToolResults(
+    working,
+    caps.toolResultMaxChars,
+    !!input.writeOnceTools,
+  );
 
   // ── Split: must-keep tail vs older ────────────────────────────────
-  // Keep tool chains intact: walk from end, keep last N "turns"
   const maxMsgs = caps.maxHistoryMessages;
   const tail: Record<string, any>[] = [];
   const older: Record<string, any>[] = [];
 
-  // Always try to keep from the end
   let turnBudget = maxMsgs;
   for (let i = working.length - 1; i >= 0; i--) {
     const m = working[i];
     if (tail.length >= turnBudget && m.role !== 'tool') {
-      // once we hit user/assistant beyond budget, rest is older
       older.unshift(...working.slice(0, i + 1));
       break;
     }
     tail.unshift(m);
-    if (m.role === 'user') turnBudget--; // count user turns
+    if (m.role === 'user') turnBudget--;
   }
 
   // Fill from tail (newest first) into budget
@@ -209,7 +248,6 @@ export function packConversation(input: PackInput): PackResult {
   for (let i = tail.length - 1; i >= 0; i--) {
     const t = estimateMessageTokens(tail[i]);
     if (historyTokens + t > remaining && keptRev.length > 0) {
-      // Must keep at least the last user message
       const isLastUser =
         tail[i].role === 'user' &&
         !keptRev.some(k => k.role === 'user');
@@ -223,12 +261,12 @@ export function packConversation(input: PackInput): PackResult {
   }
   const kept = keptRev.reverse();
 
-  // Anything not in tail was already "older"
   dropped += older.length;
 
-  // Compact stub for dropped older content (no LLM)
+  // Compact stub for dropped older content — only as DYNAMIC system (not static)
+  // cache_max / full: avoid noisy stubs that rewrite the dynamic prefix every pack
   let dropStub = '';
-  if (dropped > 0 && caps.contextStrategy !== 'full') {
+  if (dropped > 0 && caps.contextStrategy === 'balanced') {
     const sample = older
       .slice(-6)
       .map(m => {
@@ -237,19 +275,23 @@ export function packConversation(input: PackInput): PackResult {
       })
       .join(' | ');
     dropStub = `[${dropped} earlier messages omitted for token budget${sample ? `: ${sample}` : ''}]`;
+  } else if (dropped > 0 && caps.contextStrategy === 'minimal') {
+    // Short fixed-shape stub (no sample text) — more cache-friendly than varying samples
+    dropStub = `[${dropped} earlier messages omitted for token budget]`;
+  } else if (dropped > 0 && cacheMax) {
+    // Fixed template only — count may change but no random sample churn
+    dropStub = `[Context compacted: ${dropped} earlier messages omitted to protect prompt cache]`;
   }
 
+  if (dropStub) dynamicBits.push(dropStub);
+  const dynamicSystem = dynamicBits.filter(Boolean).join('\n\n');
+
   const packed: Record<string, any>[] = [];
-  if (systemText.trim()) {
-    packed.push({ role: 'system', content: systemText });
+  if (staticSystem.trim()) {
+    packed.push({ role: 'system', content: staticSystem });
   }
-  if (dropStub && caps.contextStrategy !== 'full') {
-    // Attach stub as system note (cheap) rather than fake user message
-    if (packed[0]?.role === 'system') {
-      packed[0].content += `\n\n${dropStub}`;
-    } else {
-      packed.push({ role: 'system', content: dropStub });
-    }
+  if (dynamicSystem.trim()) {
+    packed.push({ role: 'system', content: dynamicSystem });
   }
   packed.push(...kept);
 
@@ -262,9 +304,11 @@ export function packConversation(input: PackInput): PackResult {
     finalMsgs.reduce((s, m) => s + estimateMessageTokens(m), 0);
 
   // Suggest LLM compression if still high vs window
-  const needsLlmCompression =
-    estimatedTokens > caps.contextWindow * caps.compressionThreshold ||
-    (dropped > 8 && caps.contextStrategy !== 'minimal');
+  // cache_max: only when truly near the window (avoid frequent summary rewrites)
+  const needsLlmCompression = cacheMax
+    ? estimatedTokens > caps.contextWindow * caps.compressionThreshold
+    : estimatedTokens > caps.contextWindow * caps.compressionThreshold ||
+      (dropped > 8 && caps.contextStrategy !== 'minimal');
 
   return {
     messages: finalMsgs,
@@ -277,7 +321,7 @@ export function packConversation(input: PackInput): PackResult {
       keptMessages: kept.length,
       droppedMessages: dropped,
       truncatedTools,
-      systemTokens,
+      systemTokens: staticTokens + estimateTokens(dynamicSystem),
       historyTokens,
     },
   };
@@ -315,4 +359,13 @@ export function formatPackStats(stats: PackResult['stats']): string {
     `kept=${stats.keptMessages} dropped=${stats.droppedMessages} ` +
     `sys≈${stats.systemTokens} hist≈${stats.historyTokens} toolsTrunc=${stats.truncatedTools}`
   );
+}
+
+/**
+ * Extract the static system string from a packed message list (first system msg).
+ * Useful for tests / cache-prefix assertions.
+ */
+export function getStaticSystemContent(messages: Record<string, any>[]): string {
+  const sys = messages.find(m => m.role === 'system');
+  return typeof sys?.content === 'string' ? sys.content : '';
 }

@@ -7,12 +7,21 @@ import type { ConfigManager } from './configManager.js';
 import type { ModelConfig } from './providers/modelTypes.js';
 import { buildCompletionRequest } from './providers/requestAdapter.js';
 import { resolveModelCaps } from './providers/resolveCaps.js';
+import { parseProviderUsage } from './context/promptCacheSession.js';
 
-interface StreamChunk {
-  type: 'content' | 'thinking' | 'tool_call';
+export interface StreamUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  cachedTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+export interface StreamChunk {
+  type: 'content' | 'thinking' | 'tool_call' | 'usage';
   content: string;
   toolCalls?: ToolCallDelta[];
   finishReason?: string;
+  usage?: StreamUsage;
 }
 
 /**
@@ -330,6 +339,25 @@ export class ProviderGateway {
           try {
             const parsed = JSON.parse(trimmed.slice(6));
             const choice = parsed.choices?.[0];
+
+            // Usage often arrives on the final SSE object (with stream_options.include_usage)
+            const usageRaw = parsed.usage ?? parsed.x_groq?.usage ?? parsed.x_usage;
+            if (usageRaw) {
+              const u = parseProviderUsage(usageRaw);
+              if (u) {
+                yield {
+                  type: 'usage',
+                  content: '',
+                  usage: {
+                    promptTokens: u.promptTokens,
+                    completionTokens: u.completionTokens,
+                    cachedTokens: u.cachedTokens,
+                    cacheWriteTokens: u.cacheWriteTokens,
+                  },
+                };
+              }
+            }
+
             if (!choice) continue;
 
             // Streaming tokens live on delta; some gateways put final tool_calls on message
@@ -506,8 +534,40 @@ export class ProviderGateway {
                 };
               }
             }
-            if (ev.type === 'message_delta' && ev.delta?.stop_reason) {
-              yield { type: 'content', content: '', finishReason: ev.delta.stop_reason };
+            if (ev.type === 'message_delta') {
+              if (ev.delta?.stop_reason) {
+                yield { type: 'content', content: '', finishReason: ev.delta.stop_reason };
+              }
+              if (ev.usage) {
+                const u = parseProviderUsage(ev.usage);
+                if (u) {
+                  yield {
+                    type: 'usage',
+                    content: '',
+                    usage: {
+                      promptTokens: u.promptTokens,
+                      completionTokens: u.completionTokens,
+                      cachedTokens: u.cachedTokens,
+                      cacheWriteTokens: u.cacheWriteTokens,
+                    },
+                  };
+                }
+              }
+            }
+            if (ev.type === 'message_start' && ev.message?.usage) {
+              const u = parseProviderUsage(ev.message.usage);
+              if (u) {
+                yield {
+                  type: 'usage',
+                  content: '',
+                  usage: {
+                    promptTokens: u.promptTokens,
+                    completionTokens: u.completionTokens,
+                    cachedTokens: u.cachedTokens,
+                    cacheWriteTokens: u.cacheWriteTokens,
+                  },
+                };
+              }
             }
           } catch {
             // skip
