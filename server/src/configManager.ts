@@ -32,6 +32,13 @@ export interface OpenChatConfig {
     cheapModelId?: string;
     codingModelId?: string;
   };
+  /**
+   * When true (default), file_write / file_edit stage changes for user Apply
+   * instead of writing to disk immediately.
+   */
+  requireFileApply?: boolean;
+  /** When true, each chat turn creates/updates a Task Board card */
+  chatTaskBridge?: boolean;
 }
 
 /** Sanitize error messages to strip API keys and secrets. */

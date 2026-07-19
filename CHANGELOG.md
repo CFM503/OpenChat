@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.7] - 2026-07-19
+
+### Added
+- **Diff preview + confirm before write (Apply)**
+  - `requireFileApply` (default **on**): `file_write` / `file_edit` stage changes instead of writing immediately
+  - `file_read` sees staged content so the agent can continue editing safely
+  - WS `pending_patch` + REST `/api/patches` (list / apply / reject / apply-all)
+  - **DiffReviewPanel** under chat: unified diff, Apply / Reject / Apply all
+  - Settings → Agent routing → “Require Apply for file writes”
+- **Task Board ↔ Agent closed loop**
+  - `chatTaskBridge` (default **on**): each chat turn creates a Running task card
+  - WS `task_event` (start / log / complete / fail) updates the board during the agent run
+  - Task Board **Start** still runs the agent with `taskId` + session cache
+  - Staged files log on the linked task; tools stream into task logs
+  - Settings → “Chat → Task Board bridge”
+
+### Changed
+- Agent system prompt notes staged-write mode when Apply is required
+
+---
+
 ## [2.5.6] - 2026-07-19
 
 ### Added

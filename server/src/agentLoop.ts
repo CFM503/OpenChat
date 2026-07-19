@@ -62,6 +62,9 @@ export interface AgentLoopParams {
   forceCompress?: boolean;
   /** UI conversation session id — enables cross-turn append-only prompt cache */
   conversationSessionId?: string;
+  /** Optional Task Board id to stream task_event updates */
+  taskId?: string;
+  taskTitle?: string;
 }
 
 export interface CompressOnlyParams {
@@ -193,6 +196,8 @@ export class AgentLoop {
       enableThinking,
       forceCompress,
       conversationSessionId,
+      taskId,
+      taskTitle,
     } = params;
 
     const routing = resolveAgentRouting(this.providers, modelId);
@@ -204,6 +209,18 @@ export class AgentLoop {
     // Tool loop uses coding model (or primary); summary uses cheap model
     const model = routing.agent;
     this.emitRoutingEvent(onEvent, routing);
+
+    if (taskId) {
+      onEvent({
+        type: 'task_event',
+        taskId,
+        action: 'start',
+        message: taskTitle
+          ? `Agent started: ${taskTitle}`
+          : 'Agent started for this task',
+        level: 'info',
+      });
+    }
 
     const caps = resolveModelCaps(model);
     const toolsDisabled = model.disableTools === true || !caps.supportsTools;
@@ -354,6 +371,18 @@ export class AgentLoop {
       sessionId,
       abortSignal: signal ?? new AbortController().signal,
     };
+
+    // Ensure model knows about staged-apply (inject into leading system message if missing)
+    const requireApply = this.providers.config.load()?.requireFileApply !== false;
+    if (requireApply) {
+      const note =
+        'File writes (file_write / file_edit) are STAGED for user review — they are not on disk until the user clicks Apply. ' +
+        'After staging, continue using tools; file_read sees staged content. Tell the user which files need Apply.';
+      const sys = llmMessagesPacked.find(m => m.role === 'system');
+      if (sys && typeof sys.content === 'string' && !sys.content.includes('STAGED for user review')) {
+        sys.content = `${sys.content}\n\n${note}`;
+      }
+    }
 
     const MAX_ROUNDS = 10;
     /** Any non-empty content event sent to the client this run */
@@ -564,6 +593,15 @@ export class AgentLoop {
         ) {
           anyUserContent = true;
         }
+        if (taskId && !signal?.aborted) {
+          onEvent({
+            type: 'task_event',
+            taskId,
+            action: 'complete',
+            message: 'Agent finished',
+            level: 'success',
+          });
+        }
         onEvent({ type: 'done' });
         return;
       }
@@ -629,7 +667,20 @@ export class AgentLoop {
           input = {};
         }
 
-        let result: { success: boolean; output: string; error?: string; duration: number };
+        let result: {
+          success: boolean;
+          output: string;
+          error?: string;
+          duration: number;
+          pendingPatch?: {
+            id: string;
+            path: string;
+            tool: 'file_write' | 'file_edit';
+            oldContent: string;
+            newContent: string;
+            diffPreview?: string;
+          };
+        };
         try {
           result = await tool.execute(input as any, ctx);
         } catch (execErr: any) {
@@ -651,10 +702,38 @@ export class AgentLoop {
           };
         }
 
+        if (result.pendingPatch) {
+          onEvent({
+            type: 'pending_patch',
+            id: result.pendingPatch.id,
+            path: result.pendingPatch.path,
+            tool: result.pendingPatch.tool,
+            oldContent: result.pendingPatch.oldContent,
+            newContent: result.pendingPatch.newContent,
+            diffPreview: result.pendingPatch.diffPreview,
+            taskId,
+          });
+        }
+
+        if (taskId) {
+          onEvent({
+            type: 'task_event',
+            taskId,
+            action: 'log',
+            message: result.success
+              ? `✓ ${tc.name}${result.pendingPatch ? ` (staged ${result.pendingPatch.path})` : ''}`
+              : `✗ ${tc.name}: ${result.error || 'failed'}`,
+            level: result.success ? 'success' : 'error',
+          });
+        }
+
         const toolResult: ToolCallResult = {
           toolCallId: tc.id,
           name: tc.name,
-          ...result,
+          success: result.success,
+          output: result.output,
+          error: result.error,
+          duration: result.duration,
         };
 
         onEvent({
@@ -671,6 +750,7 @@ export class AgentLoop {
             success: result.success,
             output: result.output,
             error: result.error,
+            pendingPatchId: result.pendingPatch?.id,
           }),
         });
       }
@@ -684,6 +764,18 @@ export class AgentLoop {
         enableThinking,
         onEvent,
         alreadyHasContent: false,
+      });
+    }
+
+    if (taskId && !signal?.aborted) {
+      onEvent({
+        type: 'task_event',
+        taskId,
+        action: 'complete',
+        message: anyUserContent
+          ? 'Agent finished'
+          : 'Agent finished (no visible text)',
+        level: 'success',
       });
     }
 

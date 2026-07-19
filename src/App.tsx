@@ -17,7 +17,9 @@ import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useTasks } from './hooks/useTasks';
+import { usePatches } from './hooks/usePatches';
 import { usePanelLayout } from './hooks/usePanelLayout';
+import { DiffReviewPanel } from './components/DiffReviewPanel';
 
 export function App() {
   const [showModelConfig, setShowModelConfig] = useState(false);
@@ -41,6 +43,8 @@ export function App() {
 
   const ensureSessionRef = useRef<() => Promise<string | null>>(async () => null);
 
+  const patches = usePatches();
+
   const handleAgentFileTouched = useCallback(
     (filePath: string) => {
       layout.setRightPanelCollapsed(false);
@@ -48,6 +52,22 @@ export function App() {
       void workspace.handleOpenDiskFile(filePath);
     },
     [layout, workspace],
+  );
+
+  const sessionsRef = useRef<{ ensureSession: () => Promise<string | null> } | null>(null);
+  const isStreamingRef = useRef(false);
+
+  const tasks = useTasks(
+    config.activeModelId,
+    isStreamingRef,
+    backend.backendAvailableRef,
+    {
+      ensureSession: () => sessionsRef.current?.ensureSession() ?? Promise.resolve(null),
+      onPendingPatch: p => {
+        patches.upsertPatch(p);
+        layout.setRightPanelCollapsed(false);
+      },
+    },
   );
 
   const chat = useChat({
@@ -68,6 +88,17 @@ export function App() {
       setShowModelConfig(true);
     },
     onAgentFileTouched: handleAgentFileTouched,
+    onPendingPatch: p => {
+      patches.upsertPatch(p);
+      layout.setRightPanelCollapsed(false);
+    },
+    chatTaskBridge: config.chatTaskBridge,
+    onTaskBridgeCreate: (title, description) => {
+      layout.setRightPanelCollapsed(false);
+      workspace.setRightPanelTab('tasks');
+      return tasks.createRunningTask(title, description);
+    },
+    onTaskEvent: tasks.handleTaskEvent,
   });
 
   const sessions = useSessions(
@@ -77,12 +108,8 @@ export function App() {
     chat.isStreaming,
   );
   ensureSessionRef.current = sessions.ensureSession;
-
-  const tasks = useTasks(
-    config.activeModelId,
-    chat.isStreaming,
-    backend.backendAvailableRef,
-  );
+  sessionsRef.current = { ensureSession: sessions.ensureSession };
+  isStreamingRef.current = chat.isStreaming;
 
   const handleToggleWebSearch = useCallback(
     (enabled: boolean) => {
@@ -351,54 +378,70 @@ export function App() {
           className="panel panel-left"
           style={
             layout.rightPanelCollapsed
-              ? { flex: '1 1 auto', minWidth: 280 }
-              : { flex: `0 0 ${layout.leftPanelPct}%`, minWidth: 280 }
+              ? { flex: '1 1 auto', minWidth: 280, display: 'flex', flexDirection: 'column' }
+              : { flex: `0 0 ${layout.leftPanelPct}%`, minWidth: 280, display: 'flex', flexDirection: 'column' }
           }
         >
-          <ChatPanel
-            messages={chat.messages}
-            onSendMessage={chat.handleSendMessage}
-            onRetryMessage={chat.handleRetryMessage}
-            isStreaming={chat.isStreaming}
-            onStopStreaming={chat.handleStopStreaming}
-            webSearchEnabled={config.webSearchEnabled}
-            onToggleWebSearch={handleToggleWebSearch}
-            hasSearchKey={config.hasSearchKey}
-            enableThinking={enableThinking}
-            onToggleThinking={setEnableThinking}
-            activity={chat.activity}
-            connectionState={backend.connectionState}
-            onReconnect={backend.reconnect}
-            packStatsLabel={
-              chat.lastPackStats && !chat.isStreaming
-                ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
-                  (chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName
-                    ? ` · agent ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
-                    : '') +
-                  (chat.lastPackStats.llmCompressed &&
-                  (chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName)
-                    ? ` · zip via ${chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName}`
-                    : '') +
-                  (chat.lastPackStats.appendOnly || chat.lastPackStats.promptCacheSession
-                    ? ' · session cache'
-                    : '') +
-                  (chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
-                    ? ` · ${chat.lastPackStats.cachedTokens} cached` +
-                      (chat.lastPackStats.cacheHitRate != null
-                        ? ` (${Math.round(chat.lastPackStats.cacheHitRate * 100)}%)`
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <ChatPanel
+              messages={chat.messages}
+              onSendMessage={chat.handleSendMessage}
+              onRetryMessage={chat.handleRetryMessage}
+              isStreaming={chat.isStreaming}
+              onStopStreaming={chat.handleStopStreaming}
+              webSearchEnabled={config.webSearchEnabled}
+              onToggleWebSearch={handleToggleWebSearch}
+              hasSearchKey={config.hasSearchKey}
+              enableThinking={enableThinking}
+              onToggleThinking={setEnableThinking}
+              activity={chat.activity}
+              connectionState={backend.connectionState}
+              onReconnect={backend.reconnect}
+              packStatsLabel={
+                chat.lastPackStats && !chat.isStreaming
+                  ? `Context ~${chat.lastPackStats.estimatedTokens} tok · ${chat.lastPackStats.strategy}` +
+                    (chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName
+                      ? ` · agent ${chat.lastPackStats.agentModelName || chat.lastAgentRouting?.agentModelName}`
+                      : '') +
+                    (chat.lastPackStats.llmCompressed &&
+                    (chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName)
+                      ? ` · zip via ${chat.lastPackStats.summaryModelName || chat.lastAgentRouting?.summaryModelName}`
+                      : '') +
+                    (chat.lastPackStats.appendOnly || chat.lastPackStats.promptCacheSession
+                      ? ' · session cache'
+                      : '') +
+                    (chat.lastPackStats.cachedTokens != null && chat.lastPackStats.cachedTokens > 0
+                      ? ` · ${chat.lastPackStats.cachedTokens} cached` +
+                        (chat.lastPackStats.cacheHitRate != null
+                          ? ` (${Math.round(chat.lastPackStats.cacheHitRate * 100)}%)`
+                          : '')
+                      : '') +
+                    (chat.lastPackStats.droppedMessages
+                      ? ` · −${chat.lastPackStats.droppedMessages} msgs`
+                      : '') +
+                    (chat.lastPackStats.llmCompressed
+                      ? ' · LLM compressed'
+                      : chat.lastPackStats.compressed
+                        ? ' · packed'
                         : '')
-                    : '') +
-                  (chat.lastPackStats.droppedMessages
-                    ? ` · −${chat.lastPackStats.droppedMessages} msgs`
-                    : '') +
-                  (chat.lastPackStats.llmCompressed
-                    ? ' · LLM compressed'
-                    : chat.lastPackStats.compressed
-                      ? ' · packed'
-                      : '')
-                : null
-            }
-            onCompressContext={chat.handleCompressContext}
+                  : null
+              }
+              onCompressContext={chat.handleCompressContext}
+            />
+          </div>
+          <DiffReviewPanel
+            patches={patches.patches}
+            busy={patches.busy}
+            onApply={async id => {
+              const path = await patches.applyPatch(id);
+              if (path) handleAgentFileTouched(path);
+            }}
+            onReject={id => patches.rejectPatch(id)}
+            onApplyAll={async () => {
+              const applied = await patches.applyAll(sessions.activeSessionId || undefined);
+              for (const p of applied) handleAgentFileTouched(p);
+            }}
+            onOpenFile={path => handleAgentFileTouched(path)}
           />
         </div>
 
@@ -526,6 +569,39 @@ export function App() {
                       Tip: header model can stay as your daily default; set coding = Claude/DeepSeek-V3 and
                       cheap = flash/mini. Context strategy still lives under Models → Edit.
                     </p>
+                    <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
+                    <h3 style={{ marginBottom: 12 }}>Safety &amp; tasks</h3>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, fontSize: 13, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={config.requireFileApply}
+                        onChange={e => config.setRequireFileApply(e.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <strong>Require Apply for file writes</strong>
+                        <br />
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                          file_write / file_edit stage a diff; nothing hits disk until you click Apply
+                          (recommended). Uncheck for auto-write (TUI / trusted automation).
+                        </span>
+                      </span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={config.chatTaskBridge}
+                        onChange={e => config.setChatTaskBridge(e.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <strong>Chat → Task Board bridge</strong>
+                        <br />
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                          Each chat turn creates a Running task; tools and completion update the card.
+                        </span>
+                      </span>
+                    </label>
                   </div>
                 )}
                 {settingsTab === 'search' && (

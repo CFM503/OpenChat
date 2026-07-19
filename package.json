@@ -1,7 +1,7 @@
 {
   "name": "openchat",
   "private": true,
-  "version": "2.5.6",
+  "version": "2.5.7",
   "type": "module",
   "bin": {
     "openchat": "./bin/openchat.mjs"

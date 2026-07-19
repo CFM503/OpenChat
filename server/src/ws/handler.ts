@@ -60,6 +60,8 @@ export function attachWebSocketHandlers(
               enableThinking: msg.enableThinking,
               forceCompress: msg.forceCompress,
               conversationSessionId: msg.sessionId,
+              taskId: msg.taskId,
+              taskTitle: msg.taskTitle,
               signal: currentAbort.signal,
               onEvent: (event) => {
                 if (ws.readyState === 1 /* OPEN */) {

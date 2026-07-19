@@ -178,6 +178,25 @@ export function useChat(opts: {
   onNeedSearchSettings?: () => void;
   /** When agent successfully writes/edits a file — open it in the Code panel */
   onAgentFileTouched?: (path: string) => void;
+  /** Staged file patch for Apply UI */
+  onPendingPatch?: (p: {
+    id: string;
+    path: string;
+    tool: 'file_write' | 'file_edit';
+    oldContent: string;
+    newContent: string;
+    diffPreview?: string;
+    taskId?: string;
+  }) => void;
+  /** Task board bridge */
+  chatTaskBridge?: boolean;
+  onTaskBridgeCreate?: (title: string, description: string) => string | null;
+  onTaskEvent?: (ev: {
+    taskId: string;
+    action: 'start' | 'log' | 'complete' | 'fail';
+    message?: string;
+    level?: 'info' | 'warn' | 'error' | 'success';
+  }) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([makeWelcome()]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -201,6 +220,12 @@ export function useChat(opts: {
   const toolPathByIdRef = useRef<Map<string, string>>(new Map());
   const onAgentFileTouchedRef = useRef(opts.onAgentFileTouched);
   onAgentFileTouchedRef.current = opts.onAgentFileTouched;
+  const onPendingPatchRef = useRef(opts.onPendingPatch);
+  onPendingPatchRef.current = opts.onPendingPatch;
+  const onTaskEventRef = useRef(opts.onTaskEvent);
+  onTaskEventRef.current = opts.onTaskEvent;
+  const onTaskBridgeCreateRef = useRef(opts.onTaskBridgeCreate);
+  onTaskBridgeCreateRef.current = opts.onTaskBridgeCreate;
 
   const STAGE_ORDER = [
     'received',
@@ -358,6 +383,14 @@ export function useChat(opts: {
 
       setPhase('connecting', 'Preparing session…');
       const sessionId = await opts.ensureSessionRef.current();
+
+      // Task board bridge: one running card per user turn
+      let bridgeTaskId: string | null = null;
+      if (opts.chatTaskBridge && onTaskBridgeCreateRef.current) {
+        const title =
+          content.trim().slice(0, 48) + (content.trim().length > 48 ? '…' : '') || 'Chat task';
+        bridgeTaskId = onTaskBridgeCreateRef.current(title, content.trim().slice(0, 500));
+      }
 
       const userMsg: ChatMessage = {
         id: uid('msg'),
@@ -596,6 +629,14 @@ export function useChat(opts: {
             touchEvent();
             setLastAgentRouting(r);
           },
+          onPendingPatch: p => {
+            touchEvent();
+            onPendingPatchRef.current?.(p);
+          },
+          onTaskEvent: ev => {
+            touchEvent();
+            onTaskEventRef.current?.(ev);
+          },
           onProgress: p => {
             touchEvent();
             applyServerProgress(p.stage, p.message, p.percent);
@@ -605,12 +646,22 @@ export function useChat(opts: {
           },
           onError: message => {
             accumulatedContent += (accumulatedContent ? '\n\n' : '') + `⚠️ **Error**: ${message}`;
+            if (bridgeTaskId && onTaskEventRef.current) {
+              onTaskEventRef.current({
+                taskId: bridgeTaskId,
+                action: 'fail',
+                message,
+                level: 'error',
+              });
+            }
             finishStream({ error: true });
           },
           },
           {
             enableThinking: opts.enableThinking,
             sessionId: sessionId || undefined,
+            taskId: bridgeTaskId || undefined,
+            taskTitle: content.trim().slice(0, 80) || undefined,
           },
         );
         return sent;

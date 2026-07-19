@@ -12,6 +12,7 @@ import {
   inferContextWindowFromId,
   formatContextLabel,
 } from '../providers/inferContextWindow.js';
+import { patchStore, buildUnifiedDiff } from '../patches/store.js';
 
 export function registerRoutes(app: Hono, rt: Runtime): void {
   const {
@@ -157,6 +158,43 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
       source: contextWindow != null ? 'inferred' : 'unknown',
       label: contextWindow != null ? formatContextLabel(contextWindow) : null,
     });
+  });
+
+  // ── Pending file patches (diff preview + apply) ───────────────────
+  app.get('/api/patches', (c) => {
+    const sessionId = c.req.query('sessionId') || undefined;
+    const list = patchStore.list(sessionId).map(p => ({
+      id: p.id,
+      path: p.path,
+      tool: p.tool,
+      createdAt: p.createdAt,
+      taskId: p.taskId,
+      oldContent: p.oldContent,
+      newContent: p.newContent,
+      diffPreview: buildUnifiedDiff(p.oldContent, p.newContent, p.path),
+    }));
+    return c.json({ patches: list, requireFileApply: config.load().requireFileApply !== false });
+  });
+
+  app.post('/api/patches/:id/apply', async (c) => {
+    const id = c.req.param('id');
+    const r = await patchStore.apply(id);
+    if (!r.ok) return c.json({ error: r.error || 'Apply failed' }, 400);
+    return c.json({ success: true, path: r.path });
+  });
+
+  app.post('/api/patches/:id/reject', (c) => {
+    const id = c.req.param('id');
+    const ok = patchStore.reject(id);
+    if (!ok) return c.json({ error: 'Not found' }, 404);
+    return c.json({ success: true });
+  });
+
+  app.post('/api/patches/apply-all', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined;
+    const r = await patchStore.applyAll(sessionId);
+    return c.json({ success: true, ...r });
   });
 
   // ── Skills ──────────────────────────────────────────────────────────

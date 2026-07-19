@@ -54,12 +54,31 @@ export interface AgentRoutingPayload {
   summaryIsSeparate?: boolean;
 }
 
+export interface PendingPatchPayload {
+  id: string;
+  path: string;
+  tool: 'file_write' | 'file_edit';
+  oldContent: string;
+  newContent: string;
+  diffPreview?: string;
+  taskId?: string;
+}
+
+export interface TaskEventPayload {
+  taskId: string;
+  action: 'start' | 'log' | 'complete' | 'fail';
+  message?: string;
+  level?: 'info' | 'warn' | 'error' | 'success';
+}
+
 interface StreamCallbacks {
   onContent: (text: string) => void;
   onThinking: (text: string) => void;
   onToolEvent: (event: ToolEvent) => void;
   onPackStats?: (stats: PackStatsPayload) => void;
   onAgentRouting?: (r: AgentRoutingPayload) => void;
+  onPendingPatch?: (p: PendingPatchPayload) => void;
+  onTaskEvent?: (t: TaskEventPayload) => void;
   onProgress?: (p: ProgressEvent) => void;
   onDone: () => void;
   onError: (message: string) => void;
@@ -237,6 +256,25 @@ class BackendClient {
           summaryIsSeparate: msg.summaryIsSeparate,
         });
         break;
+      case 'pending_patch':
+        this.callbacks.onPendingPatch?.({
+          id: msg.id,
+          path: msg.path,
+          tool: msg.tool,
+          oldContent: msg.oldContent,
+          newContent: msg.newContent,
+          diffPreview: msg.diffPreview,
+          taskId: msg.taskId,
+        });
+        break;
+      case 'task_event':
+        this.callbacks.onTaskEvent?.({
+          taskId: msg.taskId,
+          action: msg.action,
+          message: msg.message,
+          level: msg.level,
+        });
+        break;
       case 'progress':
         this.callbacks.onProgress?.({
           stage: msg.stage,
@@ -263,7 +301,13 @@ class BackendClient {
     messages: ChatMessage[],
     modelId: string | undefined,
     callbacks: StreamCallbacks,
-    options?: { enableThinking?: boolean; forceCompress?: boolean; sessionId?: string },
+    options?: {
+      enableThinking?: boolean;
+      forceCompress?: boolean;
+      sessionId?: string;
+      taskId?: string;
+      taskTitle?: string;
+    },
   ): Promise<boolean> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       const ok = await this.connect();
@@ -279,6 +323,8 @@ class BackendClient {
       enableThinking: options?.enableThinking,
       forceCompress: options?.forceCompress,
       sessionId: options?.sessionId,
+      taskId: options?.taskId,
+      taskTitle: options?.taskTitle,
     };
     this.ws!.send(JSON.stringify(msg));
     return true;

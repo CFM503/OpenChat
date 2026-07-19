@@ -53,6 +53,9 @@ export type ClientMessage =
        * prompt cache across user turns.
        */
       sessionId?: string;
+      /** Link this agent run to a Task Board card */
+      taskId?: string;
+      taskTitle?: string;
     }
   /** Run pack + optional LLM compress only (no model reply); for UI /compress */
   | {
@@ -148,6 +151,23 @@ export type ServerMessage =
       modelId?: string;
       modelName?: string;
     }
+  | {
+      type: 'pending_patch';
+      id: string;
+      path: string;
+      tool: 'file_write' | 'file_edit';
+      oldContent: string;
+      newContent: string;
+      diffPreview?: string;
+      taskId?: string;
+    }
+  | {
+      type: 'task_event';
+      taskId: string;
+      action: 'start' | 'log' | 'complete' | 'fail';
+      message?: string;
+      level?: 'info' | 'warn' | 'error' | 'success';
+    }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'pong' };
@@ -157,4 +177,13 @@ export interface ToolResult {
   output: string;
   error?: string;
   duration: number;
+  /** Staged file change awaiting user Apply (requireFileApply mode) */
+  pendingPatch?: {
+    id: string;
+    path: string;
+    tool: 'file_write' | 'file_edit';
+    oldContent: string;
+    newContent: string;
+    diffPreview?: string;
+  };
 }

@@ -56,6 +56,16 @@ export function useConfig() {
   const [codingModelId, setCodingModelId] = useState(
     () => localStorage.getItem('openchat_coding_model_id') || '',
   );
+  /** Stage file writes for Apply (default true) */
+  const [requireFileApply, setRequireFileApply] = useState(() => {
+    const s = localStorage.getItem('openchat_require_file_apply');
+    return s === null ? true : s === 'true';
+  });
+  /** Create Task Board cards from chat turns (default true) */
+  const [chatTaskBridge, setChatTaskBridge] = useState(() => {
+    const s = localStorage.getItem('openchat_chat_task_bridge');
+    return s === null ? true : s === 'true';
+  });
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const modelRouterRef = useRef(new ModelRouter(models));
 
@@ -81,6 +91,8 @@ export function useConfig() {
             if (config.allowedDirectories) setAllowedDirectories(config.allowedDirectories);
             if (config.agentRouting?.cheapModelId) setCheapModelId(config.agentRouting.cheapModelId);
             if (config.agentRouting?.codingModelId) setCodingModelId(config.agentRouting.codingModelId);
+            if (config.requireFileApply !== undefined) setRequireFileApply(!!config.requireFileApply);
+            if (config.chatTaskBridge !== undefined) setChatTaskBridge(!!config.chatTaskBridge);
           }
         }
       } catch {
@@ -104,6 +116,8 @@ export function useConfig() {
     localStorage.setItem('openchat_allowed_dirs', JSON.stringify(allowedDirectories));
     localStorage.setItem('openchat_cheap_model_id', cheapModelId);
     localStorage.setItem('openchat_coding_model_id', codingModelId);
+    localStorage.setItem('openchat_require_file_apply', String(requireFileApply));
+    localStorage.setItem('openchat_chat_task_bridge', String(chatTaskBridge));
 
     const timer = setTimeout(async () => {
       try {
@@ -128,6 +142,8 @@ export function useConfig() {
             proxyEnabled,
             allowedDirectories,
             agentRouting,
+            requireFileApply,
+            chatTaskBridge,
           }),
         });
       } catch (err) {
@@ -138,7 +154,7 @@ export function useConfig() {
   }, [
     models, activeModelId, webSearchEnabled, searchProvider, searchApiKey,
     searchBaseUrl, proxyUrl, proxyEnabled, allowedDirectories, cheapModelId,
-    codingModelId, isConfigLoaded,
+    codingModelId, requireFileApply, chatTaskBridge, isConfigLoaded,
   ]);
 
   const handleAddModel = useCallback((cfg: ModelConfig) => {
@@ -188,6 +204,10 @@ export function useConfig() {
     setCheapModelId,
     codingModelId,
     setCodingModelId,
+    requireFileApply,
+    setRequireFileApply,
+    chatTaskBridge,
+    setChatTaskBridge,
     isConfigLoaded,
     modelRouterRef,
     handleAddModel,

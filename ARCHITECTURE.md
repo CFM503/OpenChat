@@ -37,11 +37,11 @@
 `resolveCaps` + `requestAdapter` handle OpenAI / Anthropic Messages / Ollama, CN vendors, reasoning models (`max_completion_tokens`, no temperature), system-role folding, auth styles.
 
 ### Version
-- **Current:** 2.5.6 (2026-07-19)
+- **Current:** 2.5.7 (2026-07-19)
 - Tags follow `vMAJOR.MINOR.PATCH` (and historical `v2.0.0-alpha.N`)
 
 ### Future work (see README Roadmap)
-Diff preview / apply workflow · Task board ↔ agent loop · React Context store · plugin hooks · skill hot-reload · E2E tests · optional keychain.  
+React Context store · plugin hooks · skill hot-reload · E2E tests · optional keychain · sub-agents.  
 **Not planned:** VS Code extension (Claude Code–style skills/plugins instead).
 
 ---

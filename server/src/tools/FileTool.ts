@@ -8,9 +8,19 @@ import type { ToolDefinition, ToolContext } from './types.js';
 import type { ToolResult } from '../types.js';
 import type { ConfigManager } from '../configManager.js';
 import { resolveSafePath, setPathConfig } from './pathUtils.js';
+import { patchStore, buildUnifiedDiff } from '../patches/store.js';
+
+let _fileConfig: ConfigManager | null = null;
 
 export function setFileToolConfig(config: ConfigManager) {
   setPathConfig(config);
+  _fileConfig = config;
+}
+
+function requireFileApply(): boolean {
+  // Default ON: stage writes for user review
+  const v = _fileConfig?.load()?.requireFileApply;
+  return v !== false;
 }
 
 /**
@@ -73,7 +83,14 @@ export const FileReadTool: ToolDefinition<FileReadInput> = {
     }
 
     try {
-      const content = await fs.readFile(absPath, 'utf-8');
+      const effective = await patchStore.getEffectiveContent(absPath);
+      if (!effective) {
+        return { success: false, output: '', error: 'File not found', duration: Date.now() - start };
+      }
+      let content = effective.content;
+      const stagedNote = effective.staged
+        ? '\n\n[Note: showing staged (pending Apply) content, not yet on disk]'
+        : '';
 
       if (input.offset != null || input.limit != null) {
         const lines = content.split('\n');
@@ -81,19 +98,22 @@ export const FileReadTool: ToolDefinition<FileReadInput> = {
         const limit = input.limit ?? 2000;
         const sliced = lines.slice(offset, offset + limit);
         const numbered = sliced.map((l, i) => `${offset + i + 1}\t${l}`).join('\n');
-        return { success: true, output: numbered, duration: Date.now() - start };
+        return { success: true, output: numbered + stagedNote, duration: Date.now() - start };
       }
 
       // Cap at 50KB for very large files
       if (content.length > 50_000) {
         return {
           success: true,
-          output: content.slice(0, 50_000) + '\n... (file truncated, use offset/limit to read specific ranges)',
+          output:
+            content.slice(0, 50_000) +
+            '\n... (file truncated, use offset/limit to read specific ranges)' +
+            stagedNote,
           duration: Date.now() - start,
         };
       }
 
-      return { success: true, output: content, duration: Date.now() - start };
+      return { success: true, output: content + stagedNote, duration: Date.now() - start };
     } catch (err: any) {
       return { success: false, output: '', error: err.message, duration: Date.now() - start };
     }
@@ -131,12 +151,49 @@ export const FileWriteTool: ToolDefinition<FileWriteInput> = {
     }
 
     try {
+      const rel = path.relative(ctx.workingDirectory, absPath);
+      let oldContent = '';
+      try {
+        const eff = await patchStore.getEffectiveContent(absPath);
+        oldContent = eff?.content ?? '';
+      } catch {
+        oldContent = '';
+      }
+
+      if (requireFileApply()) {
+        const patch = patchStore.stage({
+          sessionId: ctx.sessionId,
+          absPath,
+          relativePath: rel,
+          oldContent,
+          newContent: input.content,
+          tool: 'file_write',
+        });
+        const lines = input.content.split('\n').length;
+        const diffPreview = buildUnifiedDiff(oldContent, input.content, rel);
+        return {
+          success: true,
+          output:
+            `Staged write (${lines} lines) → ${rel} [pending user Apply]. ` +
+            `patchId=${patch.id}. Do not claim the file is saved on disk until the user applies.`,
+          duration: Date.now() - start,
+          pendingPatch: {
+            id: patch.id,
+            path: rel,
+            tool: 'file_write',
+            oldContent,
+            newContent: input.content,
+            diffPreview,
+          },
+        };
+      }
+
       await fs.mkdir(path.dirname(absPath), { recursive: true });
       await fs.writeFile(absPath, input.content, 'utf-8');
       const lines = input.content.split('\n').length;
       return {
         success: true,
-        output: `Wrote ${lines} lines to ${path.relative(ctx.workingDirectory, absPath)}`,
+        output: `Wrote ${lines} lines to ${rel}`,
         duration: Date.now() - start,
       };
     } catch (err: any) {
@@ -180,13 +237,23 @@ export const FileEditTool: ToolDefinition<FileEditInput> = {
     }
 
     try {
-      const content = await fs.readFile(absPath, 'utf-8');
+      const rel = path.relative(ctx.workingDirectory, absPath);
+      const eff = await patchStore.getEffectiveContent(absPath);
+      if (!eff) {
+        return {
+          success: false,
+          output: '',
+          error: 'File not found',
+          duration: Date.now() - start,
+        };
+      }
+      const content = eff.content;
 
       if (!content.includes(input.old_string)) {
         return {
           success: false,
           output: '',
-          error: 'old_string not found in file',
+          error: 'old_string not found in file' + (eff.staged ? ' (checked staged content)' : ''),
           duration: Date.now() - start,
         };
       }
@@ -195,16 +262,50 @@ export const FileEditTool: ToolDefinition<FileEditInput> = {
       if (input.replace_all) {
         newContent = content.split(input.old_string).join(input.new_string);
       } else {
-        // Replace only first occurrence
         const idx = content.indexOf(input.old_string);
         newContent =
           content.slice(0, idx) + input.new_string + content.slice(idx + input.old_string.length);
       }
 
+      // Baseline for diff: original disk (or empty) before any staging
+      let diskOld = '';
+      try {
+        diskOld = await fs.readFile(absPath, 'utf-8');
+      } catch {
+        diskOld = '';
+      }
+
+      if (requireFileApply()) {
+        const patch = patchStore.stage({
+          sessionId: ctx.sessionId,
+          absPath,
+          relativePath: rel,
+          oldContent: diskOld,
+          newContent,
+          tool: 'file_edit',
+        });
+        const diffPreview = buildUnifiedDiff(diskOld, newContent, rel);
+        return {
+          success: true,
+          output:
+            `Staged edit → ${rel} [pending user Apply]. patchId=${patch.id}. ` +
+            `Do not claim the file is saved on disk until the user applies.`,
+          duration: Date.now() - start,
+          pendingPatch: {
+            id: patch.id,
+            path: rel,
+            tool: 'file_edit',
+            oldContent: diskOld,
+            newContent,
+            diffPreview,
+          },
+        };
+      }
+
       await fs.writeFile(absPath, newContent, 'utf-8');
       return {
         success: true,
-        output: `Replaced in ${path.relative(ctx.workingDirectory, absPath)}`,
+        output: `Replaced in ${rel}`,
         duration: Date.now() - start,
       };
     } catch (err: any) {
