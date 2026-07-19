@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## Highlights (2.5.4 → 2.5.8)
+
+Cost, safety, and agent workflow in one arc:
+
+| Version | Theme |
+|---------|--------|
+| **2.5.4** | Session prompt cache — append-only history, `cache_max`, cheaper cached tokens |
+| **2.5.5** | Auto context window + model settings aligned for cache savings |
+| **2.5.6** | Multi-model routing — cheap summarizer + coding agent model |
+| **2.5.7** | Diff Apply before disk write + Task Board ↔ chat agent loop |
+| **2.5.8** | Recommended defaults are product defaults (see below) |
+
+**Out of the box after 2.5.8:** cloud `cache_max`, staged file Apply, chat→task bridge, optional auto cheap/coding model pick, session cache across turns.
+
+---
+
 ## [2.5.8] - 2026-07-19
 
 ### Changed
@@ -22,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Auto-pick `agentRouting.cheapModelId` / `codingModelId` from the model list when unset (flash/mini vs claude/deepseek/gpt-4 heuristics)
   - Built-in `DEFAULT_MODELS`: GPT-4o uses 8192 max output, temp 0.4, cache_max; Ollama Llama3 uses balanced / 4096 / 0.5
   - Provider gateway applies `cache_max` when a model has no context strategy
+
+### Notes
+- Explicit user settings are never overwritten; only **omitted** fields receive defaults.
+- Token-saving stack remains: session append-only cache + `cache_max` + multi-model routing + fewer full re-packs.
 
 ---
 

@@ -286,7 +286,6 @@ Planned / optional next steps (not blocking 2.1.x):
 
 | Priority | Item | Notes |
 |----------|------|--------|
-| P1 | Task-based model routing | Explore/read with cheap model; coding with strong model |
 | P1 | React Context state store | Reduce hook prop drilling after further growth |
 | P2 | Hooks runtime for plugins | Full Claude Code–style lifecycle hooks |
 | P2 | Skill directory hot-reload | Watch `SKILL.md` without full restart |
@@ -295,6 +294,8 @@ Planned / optional next steps (not blocking 2.1.x):
 | P3 | Credential OS keychain | Optional encrypted key storage |
 | — | VS Code extension | **Out of scope** — prefer Claude Code–style plugins/skills |
 
+**Shipped (see [CHANGELOG](CHANGELOG.md)):** session prompt cache & `cache_max` · multi-model routing · Diff Apply · Task Board ↔ agent · recommended defaults as product defaults (2.5.4–2.5.8).
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system layout and history.
 
-**Version:** 2.3.0 · **Last updated:** 2026-07-17
+**Version:** 2.5.8 · **Last updated:** 2026-07-19
