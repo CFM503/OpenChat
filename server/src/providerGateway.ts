@@ -199,12 +199,16 @@ interface CompletionParams {
 }
 
 export class ProviderGateway {
-  /** Exposed for agentLoop agentRouting lookups */
-  readonly config: ConfigManager;
+  /** Exposed for agentLoop agentRouting lookups (may rebind on cwd hot-switch) */
+  config: ConfigManager;
   private cachedProxyUrl: string | undefined;
   private proxyAgent: ProxyAgent | undefined;
 
   constructor(config: ConfigManager) {
+    this.config = config;
+  }
+
+  setConfig(config: ConfigManager): void {
     this.config = config;
   }
 

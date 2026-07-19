@@ -2,6 +2,7 @@
 // Application Runtime — composition root / dependency container
 // ============================================================================
 
+import fs from 'fs';
 import path from 'path';
 import { ConfigManager } from './configManager.js';
 import { ProviderGateway } from './providerGateway.js';
@@ -20,6 +21,7 @@ import { MCPManager } from './mcp/manager.js';
 import { PluginManager } from './plugins/loader.js';
 import { RegistryClient } from './registry/client.js';
 import { RegistryInstaller } from './registry/installer.js';
+import { promptCacheStore } from './context/promptCacheSession.js';
 
 export interface Runtime {
   workingDirectory: string;
@@ -132,4 +134,82 @@ export async function reloadExtensions(rt: Runtime): Promise<{ skills: number; p
     skills: rt.skills.getAll().length,
     plugins: rt.pluginManager.getAll().length,
   };
+}
+
+/**
+ * Hot-switch the project working directory (tools, fs API, OPENCHAT.md, skills project root).
+ * Model API keys stay in the active ConfigManager (re-pointed if new dir has .openchat).
+ */
+export async function setWorkingDirectory(
+  rt: Runtime,
+  rawPath: string,
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+  const trimmed = (rawPath || '').trim();
+  if (!trimmed) return { ok: false, error: 'path is required' };
+
+  let resolved: string;
+  try {
+    resolved = path.resolve(trimmed);
+  } catch {
+    return { ok: false, error: 'Invalid path' };
+  }
+
+  try {
+    if (!fs.existsSync(resolved)) {
+      return { ok: false, error: `Directory does not exist: ${resolved}` };
+    }
+    const st = fs.statSync(resolved);
+    if (!st.isDirectory()) {
+      return { ok: false, error: `Not a directory: ${resolved}` };
+    }
+    // Prefer realpath when possible
+    try {
+      resolved = fs.realpathSync(resolved);
+    } catch {
+      /* keep resolved */
+    }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+
+  const prev = rt.workingDirectory;
+  if (path.normalize(prev) === path.normalize(resolved)) {
+    return { ok: true, path: resolved };
+  }
+
+  // Rebind project-local config if the new folder has (or will use) .openchat
+  // Preserve API keys: merge previous models into new config file if new is empty
+  const prevCfg = rt.config.load();
+  const newConfig = new ConfigManager(resolved);
+  const newRaw = newConfig.load();
+  if ((!newRaw.models || newRaw.models.length === 0) && prevCfg.models?.length) {
+    newConfig.save({
+      ...prevCfg,
+      // keep project-agnostic routing/safety flags; cwd is independent
+    });
+  }
+
+  rt.workingDirectory = resolved;
+  rt.config = newConfig;
+  rt.providers.setConfig(newConfig);
+  setFileToolConfig(newConfig);
+  setBashToolConfig(newConfig);
+  setGrepGlobToolConfig(newConfig);
+  setWebToolConfig(newConfig);
+
+  rt.agentLoop.setWorkingDirectory(resolved);
+  rt.skills.setProjectDir(resolved);
+  setSkillToolContext(rt.skills, resolved);
+  try {
+    await rt.skills.load();
+  } catch (err: any) {
+    console.warn('[cwd] skill reload after switch:', err?.message);
+  }
+
+  process.env.OPENCHAT_CWD = resolved;
+  // Session prompt prefixes include old cwd paths — clear to avoid stale cache
+  promptCacheStore.clear();
+
+  console.log(`[cwd] Working directory: ${prev} → ${resolved}`);
+  return { ok: true, path: resolved };
 }

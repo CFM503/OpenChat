@@ -298,4 +298,4 @@ Planned / optional next steps (not blocking 2.1.x):
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current system layout and history.
 
-**Version:** 2.5.9 · **Last updated:** 2026-07-19
+**Version:** 2.6.0 · **Last updated:** 2026-07-19

@@ -24,6 +24,8 @@ interface WorkspacePanelProps {
   onSelectFile: (id: string) => void;
   /** Collapse the entire right workspace panel */
   onCollapse?: () => void;
+  /** Force file tree reload when working directory changes */
+  fileTreeRefreshKey?: string | number;
 }
 
 export function WorkspacePanel({
@@ -41,6 +43,7 @@ export function WorkspacePanel({
   activeFileId,
   onSelectFile,
   onCollapse,
+  fileTreeRefreshKey,
 }: WorkspacePanelProps) {
   const [showAddFile, setShowAddFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -112,7 +115,11 @@ export function WorkspacePanel({
           <div className="editor-with-tree">
             {showTree && (
               <aside className="file-tree-aside">
-                <FileTree onOpenFile={onOpenDiskFile} activePath={activePath} />
+                <FileTree
+                  onOpenFile={onOpenDiskFile}
+                  activePath={activePath}
+                  refreshKey={fileTreeRefreshKey}
+                />
               </aside>
             )}
             <div className="editor-container" id="editor-container">

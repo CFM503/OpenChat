@@ -87,6 +87,16 @@ export class AgentLoop {
     private skills?: SkillManager,
   ) {}
 
+  /** Hot-switch project root for tools / OPENCHAT.md / env block */
+  setWorkingDirectory(dir: string): void {
+    this.workingDirectory = dir;
+    this.memoryCache = null;
+  }
+
+  getWorkingDirectory(): string {
+    return this.workingDirectory;
+  }
+
   private async getProjectMemory(): Promise<string> {
     const now = Date.now();
     // 2 min cache — OPENCHAT.md rarely changes mid-session; avoids disk on every turn

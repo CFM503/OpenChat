@@ -27,6 +27,7 @@ import {
   formatPackFooter,
 } from './lib/statusLabels';
 import { uid } from './lib/uid';
+import { backendClient } from './services/api';
 
 export function App() {
   const [showModelConfig, setShowModelConfig] = useState(false);
@@ -39,6 +40,16 @@ export function App() {
     return saved === null ? true : saved === 'true';
   });
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [workingDirectory, setWorkingDirectory] = useState('');
+  const [recentDirectories, setRecentDirectories] = useState<string[]>(() => {
+    try {
+      const s = localStorage.getItem('openchat_recent_cwds');
+      return s ? (JSON.parse(s) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [switchingCwd, setSwitchingCwd] = useState(false);
 
   const pushToast = useCallback((kind: ToastItem['kind'], message: string, duration?: number) => {
     const id = uid('toast');
@@ -53,10 +64,44 @@ export function App() {
     localStorage.setItem('openchat_enable_thinking', String(enableThinking));
   }, [enableThinking]);
 
+  useEffect(() => {
+    localStorage.setItem('openchat_recent_cwds', JSON.stringify(recentDirectories.slice(0, 8)));
+  }, [recentDirectories]);
+
   const backend = useBackend();
   const config = useConfig();
   const workspace = useWorkspace();
   const layout = usePanelLayout();
+
+  // Sync cwd from backend on load / reconnect
+  useEffect(() => {
+    if (backend.connectionState !== 'online') return;
+    void backendClient.getWorkingDirectory().then(p => {
+      if (p) setWorkingDirectory(p);
+    });
+  }, [backend.connectionState]);
+
+  const changeWorkingDirectory = useCallback(
+    async (path: string) => {
+      setSwitchingCwd(true);
+      try {
+        const r = await backendClient.setWorkingDirectory(path);
+        if (!r.ok) return { ok: false as const, error: r.error };
+        setWorkingDirectory(r.path);
+        setRecentDirectories(prev => {
+          const next = [r.path, ...prev.filter(x => x !== r.path)];
+          return next.slice(0, 8);
+        });
+        // Clear open editors from previous project (paths invalid)
+        // workspace doesn't expose clear — leave tabs; tree will refresh
+        pushToast('success', `工作目录已切换：${r.path}`);
+        return { ok: true as const, path: r.path };
+      } finally {
+        setSwitchingCwd(false);
+      }
+    },
+    [pushToast],
+  );
 
   const ensureSessionRef = useRef<() => Promise<string | null>>(async () => null);
 
@@ -281,6 +326,19 @@ export function App() {
                 待应用 {patches.patches.length}
               </span>
             )}
+            {workingDirectory && (
+              <span
+                className="logo-badge"
+                style={{ fontSize: '0.6rem', marginLeft: 6, maxWidth: 220, cursor: 'pointer' }}
+                title={`工作目录（点击打开设置）\n${workingDirectory}`}
+                onClick={() => {
+                  setSettingsTab('network');
+                  setShowModelConfig(true);
+                }}
+              >
+                📁 {workingDirectory.split(/[/\\]/).filter(Boolean).pop() || workingDirectory}
+              </span>
+            )}
           </div>
         </div>
 
@@ -457,6 +515,7 @@ export function App() {
                 activeFileId={workspace.activeFileId}
                 onSelectFile={workspace.setActiveFileId}
                 onCollapse={() => layout.setRightPanelCollapsed(true)}
+                fileTreeRefreshKey={workingDirectory}
               />
             </div>
           </>
@@ -630,6 +689,10 @@ export function App() {
                     onUpdateProxyUrl={config.setProxyUrl}
                     onUpdateProxyEnabled={config.setProxyEnabled}
                     onUpdateAllowedDirectories={config.setAllowedDirectories}
+                    workingDirectory={workingDirectory}
+                    recentDirectories={recentDirectories}
+                    switchingCwd={switchingCwd}
+                    onChangeWorkingDirectory={changeWorkingDirectory}
                   />
                 )}
                 {settingsTab === 'extensions' && <ExtensionPanel />}

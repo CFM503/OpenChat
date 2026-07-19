@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import type { Runtime } from '../runtime.js';
-import { reloadExtensions } from '../runtime.js';
+import { reloadExtensions, setWorkingDirectory } from '../runtime.js';
 import { listTree, readFileContent, writeFileContent } from '../fsApi.js';
 import { buildEnvContext } from '../envContext.js';
 import {
@@ -15,17 +15,36 @@ import {
 import { patchStore, buildUnifiedDiff } from '../patches/store.js';
 
 export function registerRoutes(app: Hono, rt: Runtime): void {
-  const {
-    config, sessions, providers, skills, mcpManager, pluginManager,
-    registryInstaller, registryClient, tools, workingDirectory,
-  } = rt;
+  // Do not capture workingDirectory/config by value — they can hot-switch
+  const { sessions, skills, mcpManager, pluginManager, registryInstaller, registryClient, tools } =
+    rt;
 
   // ── Config ──────────────────────────────────────────────────────────
-  app.get('/api/config', (c) => c.json(config.load()));
+  app.get('/api/config', (c) => c.json(rt.config.load()));
   app.post('/api/config', async (c) => {
     const body = await c.req.json();
-    config.save(body);
+    rt.config.save(body);
     return c.json({ success: true });
+  });
+
+  // ── Working directory (hot-switch project root for tools / fs / memory) ──
+  app.get('/api/workspace/cwd', (c) =>
+    c.json({
+      path: rt.workingDirectory,
+      env: buildEnvContext(rt.workingDirectory),
+    }),
+  );
+
+  app.post('/api/workspace/cwd', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const pathIn = typeof body.path === 'string' ? body.path : '';
+    const result = await setWorkingDirectory(rt, pathIn);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json({
+      success: true,
+      path: result.path,
+      env: buildEnvContext(result.path),
+    });
   });
 
   // ── Sessions ────────────────────────────────────────────────────────
@@ -62,8 +81,8 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
     const dir = c.req.query('path') || '.';
     const depth = parseInt(c.req.query('depth') || '3', 10);
     try {
-      const tree = await listTree(dir, workingDirectory, config, Math.min(depth, 5));
-      return c.json({ root: workingDirectory, tree });
+      const tree = await listTree(dir, rt.workingDirectory, rt.config, Math.min(depth, 5));
+      return c.json({ root: rt.workingDirectory, tree });
     } catch (err: any) {
       return c.json({ error: err.message }, 400);
     }
@@ -72,7 +91,7 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
     const filePath = c.req.query('path');
     if (!filePath) return c.json({ error: 'path required' }, 400);
     try {
-      return c.json(await readFileContent(filePath, workingDirectory, config));
+      return c.json(await readFileContent(filePath, rt.workingDirectory, rt.config));
     } catch (err: any) {
       return c.json({ error: err.message }, 400);
     }
@@ -83,7 +102,7 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
       return c.json({ error: 'path and content are required' }, 400);
     }
     try {
-      return c.json(await writeFileContent(body.path, body.content, workingDirectory, config));
+      return c.json(await writeFileContent(body.path, body.content, rt.workingDirectory, rt.config));
     } catch (err: any) {
       return c.json({ error: err.message }, 400);
     }
@@ -91,12 +110,12 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
 
   // ── Health / tools / discover ───────────────────────────────────────
   app.get('/api/health', (c) => {
-    const env = buildEnvContext(workingDirectory);
+    const env = buildEnvContext(rt.workingDirectory);
     return c.json({
       status: 'ok',
       tools: tools.getAll().map(t => t.name),
-      workingDirectory,
-      canMakeRequest: providers.canMakeRequest(),
+      workingDirectory: rt.workingDirectory,
+      canMakeRequest: rt.providers.canMakeRequest(),
       skills: skills.getAll().length,
       plugins: pluginManager.getAll().length,
       environment: {
@@ -173,7 +192,10 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
       newContent: p.newContent,
       diffPreview: buildUnifiedDiff(p.oldContent, p.newContent, p.path),
     }));
-    return c.json({ patches: list, requireFileApply: config.load().requireFileApply !== false });
+    return c.json({
+      patches: list,
+      requireFileApply: rt.config.load().requireFileApply !== false,
+    });
   });
 
   app.post('/api/patches/:id/apply', async (c) => {
@@ -244,7 +266,7 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
     const expanded = await skills.expand(skill, {
       selection: body.selection,
       arguments: body.arguments || body.args || '',
-      projectDir: workingDirectory,
+      projectDir: rt.workingDirectory,
       runShell: body.runShell !== false,
     });
     return c.json({ expanded });

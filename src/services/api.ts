@@ -574,6 +574,37 @@ class BackendClient {
 
   // ── Filesystem API ───────────────────────────────────────────────────────
 
+  async getWorkingDirectory(): Promise<string | null> {
+    try {
+      const resp = await fetch(apiUrl('/api/workspace/cwd'), {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return typeof data.path === 'string' ? data.path : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setWorkingDirectory(
+    path: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+    try {
+      const resp = await fetch(apiUrl('/api/workspace/cwd'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await resp.json();
+      if (!resp.ok) return { ok: false, error: data.error || `HTTP ${resp.status}` };
+      return { ok: true, path: data.path };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  }
+
   async getFsTree(dirPath = '.', depth = 3): Promise<{ root: string; tree: FsTreeEntry[] } | null> {
     try {
       const resp = await fetch(

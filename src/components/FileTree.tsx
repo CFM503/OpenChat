@@ -9,6 +9,8 @@ import { backendClient } from '../services/api';
 interface FileTreeProps {
   onOpenFile: (path: string) => void;
   activePath?: string | null;
+  /** Bump to force reload after cwd switch */
+  refreshKey?: string | number;
 }
 
 function TreeNode({
@@ -55,7 +57,7 @@ function TreeNode({
   );
 }
 
-export function FileTree({ onOpenFile, activePath }: FileTreeProps) {
+export function FileTree({ onOpenFile, activePath, refreshKey }: FileTreeProps) {
   const [tree, setTree] = useState<FsTreeEntry[]>([]);
   const [root, setRoot] = useState('');
   const [loading, setLoading] = useState(true);
@@ -77,13 +79,13 @@ export function FileTree({ onOpenFile, activePath }: FileTreeProps) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   return (
     <div className="file-tree">
       <div className="file-tree-header">
         <span className="file-tree-title" title={root}>
-          {root ? root.split(/[/\\]/).pop() || root : 'Workspace'}
+          {root || 'Workspace'}
         </span>
         <button className="btn-icon" onClick={load} title="Refresh file tree" aria-label="Refresh">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

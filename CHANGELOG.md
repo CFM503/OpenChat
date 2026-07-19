@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.0] - 2026-07-19
+
+### Added
+- **Hot-switch working directory** (project root for tools / file tree / OPENCHAT.md)
+  - Settings → **Network / 工作目录**：输入路径「切换到此目录」，无需重启后端
+  - REST `GET/POST /api/workspace/cwd`
+  - Recent directories list (localStorage)
+  - Header badge shows folder name; click opens settings
+  - On switch: rebind agent cwd, reload project skills, clear session prompt cache (paths changed), optional migrate models into new project `.openchat` if empty
+  - File tree refreshes via `refreshKey`
+
+### Changed
+- FS / health / config routes always read live `rt.workingDirectory` (no stale capture at boot)
+
+---
+
 ## [2.5.9] - 2026-07-19
 
 ### Added
@@ -25,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## Highlights (2.5.4 → 2.5.9)
+## Highlights (2.5.4 → 2.6.0)
 
 Cost, safety, and agent workflow in one arc:
 
@@ -37,8 +53,9 @@ Cost, safety, and agent workflow in one arc:
 | **2.5.7** | Diff Apply before disk write + Task Board ↔ chat agent loop |
 | **2.5.8** | Recommended defaults are product defaults |
 | **2.5.9** | UX polish — Chinese status, toasts, one-click recommended defaults |
+| **2.6.0** | Hot-switch project working directory from Settings |
 
-**Out of the box after 2.5.9:** cloud `cache_max`, staged file Apply, chat→task bridge, auto cheap/coding pick, session cache, clearer Chinese feedback.
+**Out of the box after 2.6.0:** cache-friendly agent, multi-model routing, staged Apply, task bridge, and switchable project folder without restart.
 
 ---
 
