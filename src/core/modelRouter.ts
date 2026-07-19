@@ -111,7 +111,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
-    defaults: { contextWindow: 128000, tokenParam: 'max_tokens', contextStrategy: 'cache_max' },
+    defaults: {
+      contextWindow: 128000,
+      tokenParam: 'max_tokens',
+      contextStrategy: 'cache_max',
+      maxTokens: 8192,
+      temperature: 0.4,
+    },
   },
   {
     id: 'openai-o3',
@@ -129,6 +135,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       reasoningMode: 'enabled',
       contextWindow: 200000,
       contextStrategy: 'cache_max',
+      maxTokens: 8192,
     },
   },
   {
@@ -142,7 +149,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'AIza...',
     helpUrl: 'https://aistudio.google.com/apikey',
-    defaults: { contextWindow: 128000, supportsVision: true },
+    defaults: { contextWindow: 128000, supportsVision: true, contextStrategy: 'cache_max', maxTokens: 8192 },
   },
   {
     id: 'anthropic',
@@ -160,6 +167,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       authStyle: 'anthropic-x-api-key',
       contextWindow: 200000,
       tokenParam: 'max_tokens',
+      contextStrategy: 'cache_max',
+      maxTokens: 8192,
     },
   },
   {
@@ -212,7 +221,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'sk-...',
     helpUrl: 'https://platform.deepseek.com/api_keys',
-    defaults: { contextWindow: 64000, contextStrategy: 'cache_max' },
+    defaults: { contextWindow: 64000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'deepseek-r1',
@@ -227,6 +236,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
       reasoningMode: 'enabled',
       supportsTemperature: false,
       contextWindow: 64000,
+      contextStrategy: 'cache_max',
+      maxTokens: 8192,
     },
   },
   {
@@ -240,7 +251,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     needsApiKey: true,
     apiKeyPlaceholder: 'sk-...',
     helpUrl: 'https://dashscope.console.aliyun.com/',
-    defaults: { contextWindow: 128000 },
+    defaults: { contextWindow: 128000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'moonshot',
@@ -252,7 +263,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'moonshot-v1-128k',
     needsApiKey: true,
     helpUrl: 'https://platform.moonshot.cn/',
-    defaults: { contextWindow: 128000 },
+    defaults: { contextWindow: 128000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'zhipu',
@@ -264,7 +275,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'glm-4-flash',
     needsApiKey: true,
     helpUrl: 'https://open.bigmodel.cn/',
-    defaults: { contextWindow: 128000 },
+    defaults: { contextWindow: 128000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'doubao',
@@ -276,7 +287,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'doubao-pro-32k',
     needsApiKey: true,
     helpUrl: 'https://console.volcengine.com/ark',
-    defaults: { contextWindow: 32000 },
+    defaults: { contextWindow: 32000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'siliconflow',
@@ -288,7 +299,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'deepseek-ai/DeepSeek-V3',
     needsApiKey: true,
     helpUrl: 'https://cloud.siliconflow.cn/',
-    defaults: { contextWindow: 64000 },
+    defaults: { contextWindow: 64000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'minimax',
@@ -300,7 +311,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'MiniMax-Text-01',
     needsApiKey: true,
     helpUrl: 'https://platform.minimaxi.com/',
-    defaults: { contextWindow: 245000 },
+    defaults: { contextWindow: 245000, contextStrategy: 'cache_max', maxTokens: 8192, temperature: 0.4 },
   },
   {
     id: 'baichuan',
@@ -334,7 +345,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'mimo-v2.5-pro',
     needsApiKey: true,
     helpUrl: 'https://mimo.mi.com',
-    defaults: { contextWindow: 128000 },
+    defaults: { contextWindow: 128000, contextStrategy: 'cache_max', maxTokens: 8192 },
   },
   {
     id: 'stepfun',
@@ -358,7 +369,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: '',
     needsApiKey: false,
     modelsEndpoint: 'http://localhost:1234/v1/models',
-    defaults: { contextStrategy: 'minimal', contextWindow: 32000 },
+    // Local: no cloud prompt-cache — prefer balanced/minimal, shorter output
+    defaults: {
+      contextStrategy: 'balanced',
+      contextWindow: 32000,
+      maxTokens: 4096,
+      temperature: 0.5,
+      skillCatalogMode: 'names',
+      toolResultMaxChars: 4000,
+    },
   },
   {
     id: 'ollama',
@@ -370,7 +389,16 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: '',
     needsApiKey: false,
     modelsEndpoint: 'http://localhost:11434/api/tags',
-    defaults: { apiStyle: 'ollama', tokenParam: 'num_predict', contextWindow: 32000 },
+    defaults: {
+      apiStyle: 'ollama',
+      tokenParam: 'num_predict',
+      contextWindow: 32000,
+      contextStrategy: 'balanced',
+      maxTokens: 4096,
+      temperature: 0.5,
+      skillCatalogMode: 'names',
+      toolResultMaxChars: 4000,
+    },
   },
 ];
 

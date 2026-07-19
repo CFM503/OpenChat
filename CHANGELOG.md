@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.5.5] - 2026-07-19
+
+### Added
+- **Auto context window in model settings**
+  - Detect lists models with context size (`API` when the provider reports it, `~` when inferred from the name)
+  - Selecting a model (or typing a known id) fills **Context window** automatically
+  - Main form shows Context window + source label; **Auto** re-estimates from model id/endpoint
+  - `/api/discover-models` returns `{ id, contextWindow, source }`; optional `apiKey` for authenticated `/models`
+  - `/api/infer-context` helper + unit tests for parse/infer helpers
+
+### Changed
+- **Model settings defaults aligned** for coding + prompt-cache savings
+  - Default strategy **Cache max (recommended)**; cloud presets prefer `cache_max` + 8192 max output + temp 0.4
+  - Ollama / LM Studio presets use **balanced**, 32k window, 4096 max output (no cloud cache)
+  - Changing context strategy also updates skill catalog + tool truncation defaults
+  - Clearer labels: max **output** tokens, cap output tokens checkbox
+  - Manual add no longer defaults max tokens to 131072
+
+---
+
 ## [2.5.4] - 2026-07-19
 
 ### Added

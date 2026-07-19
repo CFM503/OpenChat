@@ -7,6 +7,11 @@ import type { Runtime } from '../runtime.js';
 import { reloadExtensions } from '../runtime.js';
 import { listTree, readFileContent, writeFileContent } from '../fsApi.js';
 import { buildEnvContext } from '../envContext.js';
+import {
+  parseModelsListResponse,
+  inferContextWindowFromId,
+  formatContextLabel,
+} from '../providers/inferContextWindow.js';
 
 export function registerRoutes(app: Hono, rt: Runtime): void {
   const {
@@ -118,20 +123,40 @@ export function registerRoutes(app: Hono, rt: Runtime): void {
   app.get('/api/discover-models', async (c) => {
     const url = c.req.query('url');
     if (!url) return c.json({ error: 'url parameter required' }, 400);
+    const apiKey = c.req.query('apiKey')?.trim() || c.req.header('x-api-key')?.trim();
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (apiKey) {
+        // OpenAI-compatible + Anthropic-style keys both accepted by many gateways as Bearer
+        headers.Authorization = `Bearer ${apiKey}`;
+        if (apiKey.startsWith('sk-ant')) headers['x-api-key'] = apiKey;
+      }
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(12000),
+        headers,
+      });
       if (!resp.ok) return c.json({ error: `HTTP ${resp.status}` }, resp.status as any);
       const data = await resp.json() as any;
-      let models: string[] = [];
-      if (data.data && Array.isArray(data.data)) {
-        models = data.data.map((m: any) => m.id).filter(Boolean);
-      } else if (data.models && Array.isArray(data.models)) {
-        models = data.models.map((m: any) => m.name || m.id).filter(Boolean);
-      }
-      return c.json({ models: models.sort() });
+      const models = parseModelsListResponse(data, url);
+      return c.json({
+        models,
+        modelIds: models.map(m => m.id),
+      });
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
+  });
+
+  /** Infer context window for a model id when API does not list it */
+  app.get('/api/infer-context', (c) => {
+    const model = c.req.query('model') || '';
+    const endpoint = c.req.query('endpoint') || '';
+    const contextWindow = inferContextWindowFromId(model, endpoint);
+    return c.json({
+      contextWindow: contextWindow ?? null,
+      source: contextWindow != null ? 'inferred' : 'unknown',
+      label: contextWindow != null ? formatContextLabel(contextWindow) : null,
+    });
   });
 
   // ── Skills ──────────────────────────────────────────────────────────

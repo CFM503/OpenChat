@@ -3,9 +3,15 @@
 // Provider presets, quick add, model auto-detect, and manual config
 // ============================================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { ModelConfig, ModelProvider, ContextStrategy, TokenParamStyle, ApiStyle } from '../core/types';
 import { ModelRouter, normalizeEndpoint, PROVIDER_PRESETS, type ProviderPreset } from '../core/modelRouter';
+import {
+  inferContextWindowFromId,
+  formatContextLabel,
+  type DiscoveredModel,
+  type ContextSource,
+} from '../../server/src/providers/inferContextWindow';
 
 interface ModelConfigPanelProps {
   models: ModelConfig[];
@@ -16,6 +22,84 @@ interface ModelConfigPanelProps {
   onSetActive: (id: string) => void;
 }
 
+/** Keep skill catalog + tool truncation aligned with context strategy (matches server resolveCaps). */
+function strategyLinkedDefaults(strategy: ContextStrategy): {
+  skillCatalogMode: 'full' | 'names' | 'off';
+  toolResultMaxChars: number;
+} {
+  switch (strategy) {
+    case 'minimal':
+      return { skillCatalogMode: 'names', toolResultMaxChars: 2_000 };
+    case 'full':
+      return { skillCatalogMode: 'full', toolResultMaxChars: 12_000 };
+    case 'cache_max':
+      return { skillCatalogMode: 'full', toolResultMaxChars: 12_000 };
+    case 'balanced':
+    default:
+      return { skillCatalogMode: 'names', toolResultMaxChars: 4_000 };
+  }
+}
+
+/** Cloud vs local default strategy when preset omits it */
+function defaultStrategyForPreset(preset: ProviderPreset): ContextStrategy {
+  if (preset.defaults?.contextStrategy) return preset.defaults.contextStrategy;
+  if (preset.region === 'local' || preset.provider === 'ollama') return 'balanced';
+  return 'cache_max';
+}
+
+interface FormState {
+  formId: string;
+  formName: string;
+  formProvider: ModelProvider;
+  formEndpoint: string;
+  formApiKey: string;
+  formModel: string;
+  formMaxTokens: number;
+  formTemperature: number;
+  formIsDefault: boolean;
+  formDisableTools: boolean;
+  formUseMaxTokens: boolean;
+  formApiStyle: ApiStyle | '';
+  formTokenParam: TokenParamStyle | '';
+  formContextWindow: number;
+  formContextStrategy: ContextStrategy;
+  formTopP: string;
+  formSupportsTemperature: boolean;
+  formReasoningMode: 'none' | 'enabled' | 'auto';
+  formStrictAlternation: boolean;
+  formAuthStyle: 'bearer' | 'anthropic-x-api-key' | 'query' | 'none';
+  formSkillCatalogMode: 'full' | 'names' | 'off';
+  formToolResultMaxChars: number;
+  formShowAdvanced: boolean;
+}
+
+/** Shared sane defaults for cloud coding + prompt-cache savings */
+const blankForm: FormState = {
+  formId: '',
+  formName: '',
+  formProvider: 'openai',
+  formEndpoint: '',
+  formApiKey: '',
+  formModel: '',
+  formMaxTokens: 8192,
+  formTemperature: 0.4,
+  formIsDefault: false,
+  formDisableTools: false,
+  formUseMaxTokens: true,
+  formApiStyle: '',
+  formTokenParam: '',
+  formContextWindow: 128000,
+  formContextStrategy: 'cache_max',
+  formTopP: '',
+  formSupportsTemperature: true,
+  formReasoningMode: 'none',
+  formStrictAlternation: false,
+  formAuthStyle: 'bearer',
+  formSkillCatalogMode: 'full',
+  formToolResultMaxChars: 12_000,
+  formShowAdvanced: false,
+};
+
 export function ModelConfigPanel({
   models,
   activeModelId,
@@ -24,66 +108,82 @@ export function ModelConfigPanel({
   onDeleteModel,
   onSetActive,
 }: ModelConfigPanelProps) {
-  interface FormState {
-    formId: string;
-    formName: string;
-    formProvider: ModelProvider;
-    formEndpoint: string;
-    formApiKey: string;
-    formModel: string;
-    formMaxTokens: number;
-    formTemperature: number;
-    formIsDefault: boolean;
-    formDisableTools: boolean;
-    formUseMaxTokens: boolean;
-    // Advanced multi-provider
-    formApiStyle: ApiStyle | '';
-    formTokenParam: TokenParamStyle | '';
-    formContextWindow: number;
-    formContextStrategy: ContextStrategy;
-    formTopP: string;
-    formSupportsTemperature: boolean;
-    formReasoningMode: 'none' | 'enabled' | 'auto';
-    formStrictAlternation: boolean;
-    formAuthStyle: 'bearer' | 'anthropic-x-api-key' | 'query' | 'none';
-    formSkillCatalogMode: 'full' | 'names' | 'off';
-    formToolResultMaxChars: number;
-    formShowAdvanced: boolean;
-  }
-
-  const blankForm: FormState = {
-    formId: '', formName: '', formProvider: 'openai', formEndpoint: '',
-    formApiKey: '', formModel: '', formMaxTokens: 4096, formTemperature: 0.7,
-    formIsDefault: false, formDisableTools: false, formUseMaxTokens: true,
-    formApiStyle: '', formTokenParam: '', formContextWindow: 128000,
-    formContextStrategy: 'cache_max', formTopP: '',
-    formSupportsTemperature: true, formReasoningMode: 'none',
-    formStrictAlternation: false, formAuthStyle: 'bearer',
-    formSkillCatalogMode: 'full', formToolResultMaxChars: 12000,
-    formShowAdvanced: false,
-  };
-
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [form, setForm] = useState<FormState>(blankForm);
   const [errors, setErrors] = useState<string[]>([]);
   const [detectingModels, setDetectingModels] = useState(false);
-  const [detectedModels, setDetectedModels] = useState<string[]>([]);
+  const [detectedModels, setDetectedModels] = useState<DiscoveredModel[]>([]);
   const [detectError, setDetectError] = useState('');
+  /** How the current context window was chosen (for UI hint) */
+  const [contextHint, setContextHint] = useState<{
+    source: ContextSource | 'preset' | 'manual';
+    label: string;
+  } | null>(null);
+  /** Skip auto-infer after user manually edits context window */
+  const contextManualRef = useRef(false);
 
   const setFormField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const applyContextWindow = useCallback((n: number, source: ContextSource | 'preset' | 'manual') => {
+    if (!n || n < 2048) return;
+    setForm(prev => ({ ...prev, formContextWindow: n }));
+    setContextHint({
+      source,
+      label: formatContextLabel(n),
+    });
+    if (source === 'manual') contextManualRef.current = true;
+    else contextManualRef.current = false;
+  }, []);
+
+  /** Auto-fill context when model id or endpoint changes (unless user locked it manually) */
+  useEffect(() => {
+    if (!isEditing || contextManualRef.current) return;
+    const id = form.formModel.trim();
+    if (!id) return;
+    const n = inferContextWindowFromId(id, form.formEndpoint);
+    if (n != null) {
+      setForm(prev => {
+        // Don't thrash if already matching
+        if (prev.formContextWindow === n) return prev;
+        return { ...prev, formContextWindow: n };
+      });
+      setContextHint({ source: 'inferred', label: formatContextLabel(n) });
+    }
+  }, [form.formModel, form.formEndpoint, isEditing]);
+
+  /** Changing strategy also updates linked skill/tool defaults (user can still override after). */
+  const setContextStrategy = useCallback((strategy: ContextStrategy) => {
+    const linked = strategyLinkedDefaults(strategy);
+    setForm(prev => ({
+      ...prev,
+      formContextStrategy: strategy,
+      formSkillCatalogMode: linked.skillCatalogMode,
+      formToolResultMaxChars: linked.toolResultMaxChars,
+    }));
   }, []);
 
   const resetForm = useCallback(() => {
     setDetectedModels([]);
     setDetectError('');
     setErrors([]);
+    setContextHint(null);
+    contextManualRef.current = false;
   }, []);
 
   const applyPreset = useCallback((preset: ProviderPreset) => {
     const d = preset.defaults || {};
+    const strategy = defaultStrategyForPreset(preset);
+    const linked = strategyLinkedDefaults(strategy);
+    const isLocal = preset.region === 'local' || preset.provider === 'ollama';
+    const ctx =
+      d.contextWindow ??
+      (preset.model ? inferContextWindowFromId(preset.model, preset.endpoint) : undefined) ??
+      (isLocal ? 32_000 : 128_000);
+    contextManualRef.current = false;
     setForm({
       ...blankForm,
       formId: `model_${preset.id}_${Date.now()}`,
@@ -92,29 +192,35 @@ export function ModelConfigPanel({
       formEndpoint: preset.endpoint,
       formApiKey: '',
       formModel: preset.model,
-      formMaxTokens: d.maxTokens ?? 8192,
-      formTemperature: d.temperature ?? 0.7,
+      formMaxTokens: d.maxTokens ?? (isLocal ? 4096 : 8192),
+      formTemperature: d.temperature ?? (isLocal ? 0.5 : 0.4),
       formIsDefault: false,
       formDisableTools: d.disableTools ?? false,
       formUseMaxTokens: d.tokenParam !== 'none',
       formApiStyle: d.apiStyle ?? '',
       formTokenParam: d.tokenParam ?? '',
-      formContextWindow: d.contextWindow ?? 128000,
-      formContextStrategy: d.contextStrategy ?? 'cache_max',
+      formContextWindow: ctx,
+      formContextStrategy: strategy,
       formSupportsTemperature: d.supportsTemperature ?? true,
       formReasoningMode: d.reasoningMode ?? 'none',
       formAuthStyle: d.authStyle ?? 'bearer',
-      formSkillCatalogMode: d.skillCatalogMode ?? 'names',
-      formToolResultMaxChars: d.toolResultMaxChars ?? 4000,
+      formSkillCatalogMode: d.skillCatalogMode ?? linked.skillCatalogMode,
+      formToolResultMaxChars: d.toolResultMaxChars ?? linked.toolResultMaxChars,
       formShowAdvanced: false,
     });
-    resetForm();
+    setContextHint({
+      source: d.contextWindow != null ? 'preset' : 'inferred',
+      label: formatContextLabel(ctx),
+    });
+    setDetectedModels([]);
+    setDetectError('');
+    setErrors([]);
     setIsEditing(true);
     setEditingId(null);
     setShowPresets(false);
-  }, [resetForm]);
+  }, []);
 
-  // Auto-detect models from endpoint
+  // Auto-detect models from endpoint (returns id + context when available)
   const handleDetectModels = useCallback(async () => {
     if (!form.formEndpoint.trim()) return;
     setDetectingModels(true);
@@ -129,17 +235,38 @@ export function ModelConfigPanel({
     } else if (modelsUrl.endsWith('/api/chat')) {
       // Ollama
       modelsUrl = modelsUrl.replace('/api/chat', '/api/tags');
-    } else {
+    } else if (modelsUrl.endsWith('/v1/messages')) {
+      modelsUrl = modelsUrl.replace(/\/v1\/messages$/, '/v1/models');
+    } else if (!/\/(models|tags)$/i.test(modelsUrl)) {
       modelsUrl = modelsUrl + '/models';
     }
 
     try {
-      const resp = await fetch(`/api/discover-models?url=${encodeURIComponent(modelsUrl)}`, {
-        signal: AbortSignal.timeout(10000),
+      const qs = new URLSearchParams({ url: modelsUrl });
+      if (form.formApiKey.trim()) qs.set('apiKey', form.formApiKey.trim());
+      const resp = await fetch(`/api/discover-models?${qs}`, {
+        signal: AbortSignal.timeout(12000),
       });
       const data = await resp.json();
-      if (data.models && data.models.length > 0) {
-        setDetectedModels(data.models);
+      const list: DiscoveredModel[] = Array.isArray(data.models)
+        ? data.models.map((m: any) =>
+            typeof m === 'string'
+              ? {
+                  id: m,
+                  source: 'inferred' as const,
+                  contextWindow: inferContextWindowFromId(m, form.formEndpoint),
+                }
+              : {
+                  id: m.id,
+                  contextWindow:
+                    m.contextWindow ??
+                    inferContextWindowFromId(m.id, form.formEndpoint),
+                  source: (m.source as ContextSource) || 'unknown',
+                },
+          )
+        : [];
+      if (list.length > 0) {
+        setDetectedModels(list);
       } else {
         setDetectError(data.error || 'No models found');
       }
@@ -148,11 +275,24 @@ export function ModelConfigPanel({
     } finally {
       setDetectingModels(false);
     }
-  }, [form.formEndpoint]);
+  }, [form.formEndpoint, form.formApiKey]);
+
+  const selectDetectedModel = useCallback((m: DiscoveredModel) => {
+    setFormField('formModel', m.id);
+    setDetectedModels([]);
+    if (m.contextWindow) {
+      applyContextWindow(m.contextWindow, m.source === 'api' ? 'api' : 'inferred');
+    } else {
+      const n = inferContextWindowFromId(m.id, form.formEndpoint);
+      if (n) applyContextWindow(n, 'inferred');
+    }
+  }, [applyContextWindow, form.formEndpoint, setFormField]);
 
   const handleEdit = (model: ModelConfig) => {
     setIsEditing(true);
     setEditingId(model.id);
+    const strategy = model.contextStrategy ?? 'cache_max';
+    const linked = strategyLinkedDefaults(strategy);
     setForm({
       ...blankForm,
       formId: model.id,
@@ -169,17 +309,26 @@ export function ModelConfigPanel({
       formApiStyle: model.apiStyle ?? '',
       formTokenParam: model.tokenParam ?? '',
       formContextWindow: model.contextWindow ?? 128000,
-      formContextStrategy: model.contextStrategy ?? 'cache_max',
+      formContextStrategy: strategy,
       formTopP: model.topP != null ? String(model.topP) : '',
       formSupportsTemperature: model.supportsTemperature ?? true,
       formReasoningMode: model.reasoningMode ?? 'none',
       formStrictAlternation: model.strictAlternation ?? false,
       formAuthStyle: model.authStyle ?? 'bearer',
-      formSkillCatalogMode: model.skillCatalogMode ?? 'names',
-      formToolResultMaxChars: model.toolResultMaxChars ?? 4000,
+      // Prefer saved values; if missing, align with strategy (not hard-coded names/4000)
+      formSkillCatalogMode: model.skillCatalogMode ?? linked.skillCatalogMode,
+      formToolResultMaxChars: model.toolResultMaxChars ?? linked.toolResultMaxChars,
       formShowAdvanced: false,
     });
-    resetForm();
+    contextManualRef.current = model.contextWindow != null;
+    setContextHint(
+      model.contextWindow != null
+        ? { source: 'manual', label: formatContextLabel(model.contextWindow) }
+        : null,
+    );
+    setDetectedModels([]);
+    setDetectError('');
+    setErrors([]);
   };
 
   const handleAddNew = () => {
@@ -189,17 +338,15 @@ export function ModelConfigPanel({
   const handleManualAdd = () => {
     setIsEditing(true);
     setEditingId(null);
-    setFormField('formId', `model_${Date.now()}`);
-    setFormField('formName', '');
-    setFormField('formProvider', 'openai');
-    setFormField('formEndpoint', 'https://api.openai.com/v1');
-    setFormField('formApiKey', '');
-    setFormField('formModel', '');
-    setFormField('formMaxTokens', 131072);
-    setFormField('formTemperature', 0.7);
-    setFormField('formIsDefault', false);
-    setFormField('formDisableTools', false);
-    setFormField('formUseMaxTokens', true);
+    setForm({
+      ...blankForm,
+      formId: `model_${Date.now()}`,
+      formName: '',
+      formProvider: 'openai',
+      formEndpoint: 'https://api.openai.com/v1',
+      formApiKey: '',
+      formModel: '',
+    });
     resetForm();
     setShowPresets(false);
   };
@@ -445,23 +592,49 @@ export function ModelConfigPanel({
               <div style={{
                 marginTop: '6px', padding: '6px',
                 background: 'var(--bg-surface)', borderRadius: '6px',
-                maxHeight: '150px', overflowY: 'auto',
+                maxHeight: '180px', overflowY: 'auto',
               }}>
                 {detectedModels.map(m => (
                   <button
-                    key={m}
+                    key={m.id}
                     type="button"
-                    onClick={() => { setFormField('formModel', m); setDetectedModels([]); }}
+                    onClick={() => selectDetectedModel(m)}
                     style={{
-                      display: 'block', width: '100%', padding: '4px 8px',
-                      background: form.formModel === m ? 'var(--bg-surface-elevated)' : 'transparent',
-                      border: 'none', borderRadius: '4px',
-                      color: 'var(--text-primary)', fontSize: '12px',
-                      fontFamily: 'var(--font-mono)', textAlign: 'left',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                      width: '100%',
+                      padding: '4px 8px',
+                      background: form.formModel === m.id ? 'var(--bg-surface-elevated)' : 'transparent',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: 'var(--text-primary)',
+                      fontSize: '12px',
+                      fontFamily: 'var(--font-mono)',
+                      textAlign: 'left',
                       cursor: 'pointer',
                     }}
                   >
-                    {m}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.id}</span>
+                    {m.contextWindow != null && (
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 11,
+                          color: 'var(--text-muted)',
+                          fontFamily: 'var(--font-sans, sans-serif)',
+                        }}
+                        title={
+                          m.source === 'api'
+                            ? 'Reported by provider API'
+                            : 'Inferred from model name'
+                        }
+                      >
+                        {formatContextLabel(m.contextWindow)}
+                        {m.source === 'api' ? ' · API' : m.source === 'inferred' ? ' · ~' : ''}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -472,6 +645,10 @@ export function ModelConfigPanel({
                 ⚠️ {detectError}
               </span>
             )}
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+              Detect lists models and context size when the API reports it; otherwise estimates from the name.
+              Selecting a model auto-fills Context window.
+            </span>
           </div>
 
           <div className="form-group">
@@ -502,7 +679,9 @@ export function ModelConfigPanel({
 
           <div className="form-row">
             <div className="form-group" style={{ minWidth: 0 }}>
-              <label>Max Tokens ({form.formMaxTokens.toLocaleString()})</label>
+              <label title="Maximum tokens generated per reply (not the context window)">
+                Max output tokens ({form.formMaxTokens.toLocaleString()})
+              </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   type="range"
@@ -518,20 +697,20 @@ export function ModelConfigPanel({
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setFormField('formMaxTokens', Math.max(4096, form.formMaxTokens - 4096))}
+                  onClick={() => setFormField('formMaxTokens', Math.max(1024, form.formMaxTokens - 1024))}
                   disabled={!form.formUseMaxTokens}
                   style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: form.formUseMaxTokens ? 'pointer' : 'not-allowed', opacity: form.formUseMaxTokens ? 1 : 0.4 }}
-                  title="Decrease by 4096"
+                  title="Decrease by 1024"
                 >
                   −
                 </button>
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setFormField('formMaxTokens', Math.min(1048576, form.formMaxTokens + 4096))}
+                  onClick={() => setFormField('formMaxTokens', Math.min(128000, form.formMaxTokens + 1024))}
                   disabled={!form.formUseMaxTokens}
                   style={{ padding: '4px 10px', fontSize: '16px', lineHeight: 1, minWidth: '32px', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: form.formUseMaxTokens ? 'pointer' : 'not-allowed', opacity: form.formUseMaxTokens ? 1 : 0.4 }}
-                  title="Increase by 4096"
+                  title="Increase by 1024"
                 >
                   +
                 </button>
@@ -548,11 +727,15 @@ export function ModelConfigPanel({
                 onChange={e => setFormField('formTemperature', parseFloat(e.target.value))}
                 style={{ accentColor: 'var(--accent-color)' }}
                 id="model-temp-input"
+                disabled={!form.formSupportsTemperature}
               />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'block' }}>
+                Coding: 0.2–0.5 · Chatty: 0.7+ · Reasoning models often ignore temperature
+              </span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
               <input
                 type="checkbox"
@@ -569,32 +752,90 @@ export function ModelConfigPanel({
               />
               Disable tools
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}
+              title="Send an explicit output token cap (max_tokens / max_completion_tokens). Uncheck only if the gateway rejects it."
+            >
               <input
                 type="checkbox"
                 checked={form.formUseMaxTokens}
                 onChange={e => setFormField('formUseMaxTokens', e.target.checked)}
               />
-              Fixed max tokens
+              Cap output tokens
             </label>
           </div>
 
-          {/* Context strategy — primary token-cost control */}
+          {/* Context strategy — primary token-cost / cache control */}
           <div className="form-group">
-            <label>Context strategy (token cost)</label>
+            <label>Context strategy</label>
             <select
               className="form-select"
               value={form.formContextStrategy}
-              onChange={e => setFormField('formContextStrategy', e.target.value as ContextStrategy)}
+              onChange={e => setContextStrategy(e.target.value as ContextStrategy)}
             >
-              <option value="minimal">Minimal — lowest cost (short history, name-only skills)</option>
-              <option value="balanced">Balanced — default (truncate tools, drop old turns)</option>
-              <option value="full">Full — keep more history (higher cost)</option>
-              <option value="cache_max">Cache max — maximize prompt-cache hits (save $ on cached tokens)</option>
+              <option value="cache_max">
+                Cache max (recommended) — stable prefix, best cache hit rate on cloud APIs
+              </option>
+              <option value="balanced">
+                Balanced — truncate tools, drop older turns (good for local / no cache)
+              </option>
+              <option value="full">Full — keep more history (higher input cost)</option>
+              <option value="minimal">Minimal — shortest context (lowest raw tokens)</option>
             </select>
             <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-              Packs system + recent turns under a budget. “Cache max” keeps a stable prompt prefix so
-              providers (DeepSeek / Claude / OpenAI-compatible) can bill repeated tokens at cache rates.
+              Changing strategy also sets skill catalog + tool truncation defaults (advanced can override).
+              Use Cache max with DeepSeek / Claude / OpenAI-compatible caches; use Balanced/Minimal for Ollama.
+            </span>
+          </div>
+
+          <div className="form-group">
+            <label>
+              Context window
+              {contextHint && (
+                <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
+                  ({contextHint.source === 'api'
+                    ? 'from API'
+                    : contextHint.source === 'inferred'
+                      ? 'auto ~' + contextHint.label
+                      : contextHint.source === 'preset'
+                        ? 'preset'
+                        : 'manual'}
+                  {contextHint.source !== 'inferred' ? ` ${contextHint.label}` : ''})
+                </span>
+              )}
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                type="number"
+                className="form-input"
+                min={2048}
+                max={2000000}
+                value={form.formContextWindow}
+                onChange={e => {
+                  const n = parseInt(e.target.value) || 128000;
+                  contextManualRef.current = true;
+                  setFormField('formContextWindow', n);
+                  setContextHint({ source: 'manual', label: formatContextLabel(n) });
+                }}
+              />
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ whiteSpace: 'nowrap', fontSize: 12, border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 10px' }}
+                title="Re-estimate from model id / endpoint"
+                onClick={() => {
+                  contextManualRef.current = false;
+                  const n =
+                    inferContextWindowFromId(form.formModel, form.formEndpoint) ??
+                    (form.formProvider === 'ollama' ? 32_000 : 128_000);
+                  applyContextWindow(n, 'inferred');
+                }}
+              >
+                Auto
+              </button>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+              Total input+output budget OpenChat uses for packing. Not the same as max output tokens.
             </span>
           </div>
 
@@ -649,17 +890,6 @@ export function ModelConfigPanel({
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Context window</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    min={2048}
-                    max={2000000}
-                    value={form.formContextWindow}
-                    onChange={e => setFormField('formContextWindow', parseInt(e.target.value) || 128000)}
-                  />
-                </div>
-                <div className="form-group">
                   <label>Auth style</label>
                   <select
                     className="form-select"
@@ -671,6 +901,22 @@ export function ModelConfigPanel({
                     <option value="query">Query ?key=</option>
                     <option value="none">None</option>
                   </select>
+                </div>
+                <div className="form-group">
+                  <label>Context window (same as above)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    min={2048}
+                    max={2000000}
+                    value={form.formContextWindow}
+                    onChange={e => {
+                      const n = parseInt(e.target.value) || 128000;
+                      contextManualRef.current = true;
+                      setFormField('formContextWindow', n);
+                      setContextHint({ source: 'manual', label: formatContextLabel(n) });
+                    }}
+                  />
                 </div>
               </div>
 
