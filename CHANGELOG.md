@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.1] - 2026-07-19
+
+### Changed
+- **File tree**: project subfolders are **collapsed by default** (click to expand); previously top-level folders auto-expanded
+
+---
+
 ## [2.6.0] - 2026-07-19
 
 ### Added

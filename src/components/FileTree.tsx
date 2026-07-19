@@ -24,7 +24,8 @@ function TreeNode({
   onOpenFile: (path: string) => void;
   activePath?: string | null;
 }) {
-  const [open, setOpen] = useState(depth < 1);
+  // All folders start collapsed (including top-level project subfolders)
+  const [open, setOpen] = useState(false);
   const isDir = entry.type === 'directory';
   const isActive = !isDir && activePath === entry.path;
 
