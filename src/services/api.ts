@@ -395,7 +395,7 @@ class BackendClient {
       const resp = await fetch('/api/skills', {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return [];
   }
@@ -413,7 +413,7 @@ class BackendClient {
         // Shell injection in skills may take longer
         signal: AbortSignal.timeout(45000),
       });
-      if (resp.ok) {
+      if (isJsonResponse(resp)) {
         const data = await resp.json() as { expanded: string };
         return data.expanded;
       }
@@ -452,7 +452,7 @@ class BackendClient {
       const resp = await fetch('/api/mcp/servers', {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return [];
   }
@@ -464,7 +464,7 @@ class BackendClient {
       const resp = await fetch('/api/plugins', {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return [];
   }
@@ -476,7 +476,7 @@ class BackendClient {
       const resp = await fetch(`/api/registry/search?q=${encodeURIComponent(query)}`, {
         signal: AbortSignal.timeout(10000),
       });
-      if (resp.ok) {
+      if (isJsonResponse(resp)) {
         const data = await resp.json() as { packages: RegistryPackageInfo[] };
         return data.packages;
       }
@@ -492,10 +492,11 @@ class BackendClient {
         body: JSON.stringify({ name }),
         signal: AbortSignal.timeout(60000),
       });
-      return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch (err: any) {
       return { success: false, error: err.message };
     }
+    return { success: false, error: 'Backend not available' };
   }
 
   async uninstallPackage(name: string): Promise<{ success: boolean; error?: string }> {
@@ -504,10 +505,11 @@ class BackendClient {
         method: 'DELETE',
         signal: AbortSignal.timeout(10000),
       });
-      return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch (err: any) {
       return { success: false, error: err.message };
     }
+    return { success: false, error: 'Backend not available' };
   }
 
   async getInstalledPackages(): Promise<InstalledPackageInfo[]> {
@@ -515,7 +517,7 @@ class BackendClient {
       const resp = await fetch('/api/registry/installed', {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) {
+      if (isJsonResponse(resp)) {
         const data = await resp.json() as { installed: InstalledPackageInfo[] };
         return data.installed;
       }
@@ -528,7 +530,7 @@ class BackendClient {
       const resp = await fetch('/api/registry/updates', {
         signal: AbortSignal.timeout(15000),
       });
-      if (resp.ok) {
+      if (isJsonResponse(resp)) {
         const data = await resp.json() as { updates: Array<{ name: string; current: string; latest: string }> };
         return data.updates;
       }
@@ -593,11 +595,12 @@ class BackendClient {
   // ── Filesystem API ───────────────────────────────────────────────────────
 
   async getWorkingDirectory(): Promise<string | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch(apiUrl('/api/workspace/cwd'), {
         signal: AbortSignal.timeout(5000),
       });
-      if (!resp.ok) return null;
+      if (!isJsonResponse(resp)) return null;
       const data = await resp.json();
       return typeof data.path === 'string' ? data.path : null;
     } catch {
@@ -608,6 +611,7 @@ class BackendClient {
   async setWorkingDirectory(
     path: string,
   ): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
+    if (!this.connected) return { ok: false, error: 'Backend not available' };
     try {
       const resp = await fetch(apiUrl('/api/workspace/cwd'), {
         method: 'POST',
@@ -615,8 +619,8 @@ class BackendClient {
         body: JSON.stringify({ path }),
         signal: AbortSignal.timeout(10000),
       });
+      if (!isJsonResponse(resp)) return { ok: false, error: `HTTP ${resp.status}` };
       const data = await resp.json();
-      if (!resp.ok) return { ok: false, error: data.error || `HTTP ${resp.status}` };
       return { ok: true, path: data.path };
     } catch (err: any) {
       return { ok: false, error: err?.message || String(err) };
@@ -624,31 +628,31 @@ class BackendClient {
   }
 
   async getFsTree(dirPath = '.', depth = 3): Promise<{ root: string; tree: FsTreeEntry[] } | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch(
         `/api/fs/tree?path=${encodeURIComponent(dirPath)}&depth=${depth}`,
         { signal: AbortSignal.timeout(10000) },
       );
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return null;
   }
 
   async readFsFile(filePath: string): Promise<{ path: string; content: string; language: string; size: number } | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch(
         `/api/fs/file?path=${encodeURIComponent(filePath)}`,
         { signal: AbortSignal.timeout(10000) },
       );
-      if (resp.ok) return resp.json();
-      const err = await resp.json().catch(() => ({})) as { error?: string };
-      throw new Error(err.error || `HTTP ${resp.status}`);
-    } catch (err: any) {
-      throw err;
-    }
+      if (isJsonResponse(resp)) return resp.json();
+    } catch { /* ignore */ }
+    return null;
   }
 
   async writeFsFile(filePath: string, content: string): Promise<{ path: string; size: number } | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch('/api/fs/file', {
         method: 'PUT',
@@ -656,29 +660,27 @@ class BackendClient {
         body: JSON.stringify({ path: filePath, content }),
         signal: AbortSignal.timeout(15000),
       });
-      if (resp.ok) return resp.json();
-      const err = await resp.json().catch(() => ({})) as { error?: string };
-      throw new Error(err.error || `HTTP ${resp.status}`);
-    } catch (err: any) {
-      throw err;
-    }
+      if (isJsonResponse(resp)) return resp.json();
+    } catch { /* ignore */ }
+    return null;
   }
 
   async restartMCPServer(name: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.connected) return { success: false, error: 'Backend not available' };
     try {
       const resp = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/restart`, {
         method: 'POST',
         signal: AbortSignal.timeout(30000),
       });
-      const data = await resp.json();
-      if (!resp.ok) return { success: false, error: data.error || `HTTP ${resp.status}` };
-      return { success: true };
+      if (isJsonResponse(resp)) return { success: true };
+      return { success: false, error: `HTTP ${resp.status}` };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
   async deleteSession(id: string): Promise<void> {
+    if (!this.connected) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -688,11 +690,12 @@ class BackendClient {
   }
 
   async getSession(id: string): Promise<{ id: string; title: string; messages: any[] } | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return null;
   }

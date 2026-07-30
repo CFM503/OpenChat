@@ -63,7 +63,8 @@ export function usePatches() {
     try {
       const q = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
       const resp = await fetch(apiUrl(`/api/patches${q}`));
-      if (!resp.ok) return;
+      const ct = resp.headers.get('content-type') || '';
+      if (!resp.ok || !ct.includes('application/json')) return;
       const data = await resp.json();
       if (Array.isArray(data.patches)) setPatches(data.patches);
     } catch {

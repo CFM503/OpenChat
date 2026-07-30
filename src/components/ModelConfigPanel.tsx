@@ -247,6 +247,10 @@ export function ModelConfigPanel({
       const resp = await fetch(`/api/discover-models?${qs}`, {
         signal: AbortSignal.timeout(12000),
       });
+      const ct = resp.headers.get('content-type') || '';
+      if (!resp.ok || !ct.includes('application/json')) {
+        throw new Error(`HTTP ${resp.status} (Not a JSON endpoint)`);
+      }
       const data = await resp.json();
       const list: DiscoveredModel[] = Array.isArray(data.models)
         ? data.models.map((m: any) =>
