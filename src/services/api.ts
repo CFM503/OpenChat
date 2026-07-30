@@ -149,44 +149,52 @@ class BackendClient {
    * Connect to the backend WebSocket.
    * H-12: Guards against concurrent connect() calls.
    */
-  connect(): Promise<boolean> {
+  async connect(): Promise<boolean> {
     // H-12: If already connecting, return existing promise
     if (this.connectingPromise) return this.connectingPromise;
 
     if (this.ws?.readyState === WebSocket.OPEN) {
-      return Promise.resolve(true);
+      return true;
     }
 
-    this.connectingPromise = new Promise((resolve) => {
-      try {
-        this.ws = new WebSocket(this.url);
+    this.connectingPromise = (async () => {
+      const available = await this.isAvailable();
+      if (!available) {
+        this.connectingPromise = null;
+        return false;
+      }
 
-        this.ws.onopen = () => {
-          this.connected = true;
-          this.reconnectAttempts = 0;  // Reset on successful connection
-          this.connectingPromise = null;
-          resolve(true);
-        };
+      return new Promise<boolean>((resolve) => {
+        try {
+          this.ws = new WebSocket(this.url);
 
-        this.ws.onmessage = (event) => {
-          this.handleMessage(event.data);
-        };
+          this.ws.onopen = () => {
+            this.connected = true;
+            this.reconnectAttempts = 0;  // Reset on successful connection
+            this.connectingPromise = null;
+            resolve(true);
+          };
 
-        this.ws.onclose = () => {
-          this.connected = false;
-          this.connectingPromise = null;
-          this.scheduleReconnect();
-        };
+          this.ws.onmessage = (event) => {
+            this.handleMessage(event.data);
+          };
 
-        this.ws.onerror = () => {
+          this.ws.onclose = () => {
+            this.connected = false;
+            this.connectingPromise = null;
+            this.scheduleReconnect();
+          };
+
+          this.ws.onerror = () => {
+            this.connectingPromise = null;
+            resolve(false);
+          };
+        } catch {
           this.connectingPromise = null;
           resolve(false);
-        };
-      } catch {
-        this.connectingPromise = null;
-        resolve(false);
-      }
-    });
+        }
+      });
+    })();
 
     return this.connectingPromise;
   }
@@ -531,6 +539,7 @@ class BackendClient {
   // ── Session API ──────────────────────────────────────────────────────────
 
   async getSessions(): Promise<Array<{ id: string; title: string; messages: ServerChatMessage[]; createdAt: number; updatedAt: number }>> {
+    if (!this.connected) return [];
     try {
       const resp = await fetch('/api/sessions', {
         signal: AbortSignal.timeout(5000),
@@ -541,6 +550,7 @@ class BackendClient {
   }
 
   async createSession(title?: string): Promise<{ id: string } | null> {
+    if (!this.connected) return null;
     try {
       const resp = await fetch('/api/sessions', {
         method: 'POST',
@@ -554,6 +564,7 @@ class BackendClient {
   }
 
   async updateSession(id: string, messages: any[], title?: string): Promise<void> {
+    if (!this.connected) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -565,6 +576,7 @@ class BackendClient {
   }
 
   async renameSession(id: string, title: string): Promise<boolean> {
+    if (!this.connected) return false;
     try {
       const resp = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -711,6 +723,8 @@ class BackendClient {
    */
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    // Don't auto-reconnect if backend is not available
+    if (!this.connected && this.reconnectAttempts >= 1) return;
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.warn(`[ws] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached, giving up`);
       return;

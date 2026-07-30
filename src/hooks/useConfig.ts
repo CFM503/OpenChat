@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ModelConfig, SearchProvider } from '../core/types';
 import { ModelRouter, DEFAULT_MODELS } from '../core/modelRouter';
 import { apiUrl } from '../lib/apiBase';
+import { backendClient } from '../services/api';
 import {
   OPENCHAT_CONFIG_DEFAULTS,
   autoPickAgentRouting,
@@ -152,6 +153,7 @@ export function useConfig() {
                 ...(codingModelId ? { codingModelId } : {}),
               }
             : undefined;
+        if (!backendClient.isConnected()) return;
         await fetch(apiUrl('/api/config'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
