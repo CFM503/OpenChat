@@ -123,6 +123,128 @@ export function ModelConfigPanel({
   } | null>(null);
   /** Skip auto-infer after user manually edits context window */
   const contextManualRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleExportAll = useCallback(() => {
+    try {
+      const payload = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        models: models,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `openchat-models-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatusMsg({ text: `✓ Successfully exported ${models.length} model route(s)!`, type: 'success' });
+    } catch (err: any) {
+      setStatusMsg({ text: `Export failed: ${err.message}`, type: 'error' });
+    }
+  }, [models]);
+
+  const handleExportSingle = useCallback((model: ModelConfig) => {
+    try {
+      const payload = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        models: [model],
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `openchat-model-${model.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatusMsg({ text: `✓ Exported model "${model.name}"`, type: 'success' });
+    } catch (err: any) {
+      setStatusMsg({ text: `Export failed: ${err.message}`, type: 'error' });
+    }
+  }, []);
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        let rawList: any[] = [];
+        if (Array.isArray(parsed)) {
+          rawList = parsed;
+        } else if (parsed && Array.isArray(parsed.models)) {
+          rawList = parsed.models;
+        } else if (parsed && typeof parsed === 'object' && parsed.name && parsed.endpoint) {
+          rawList = [parsed];
+        } else {
+          throw new Error('Invalid format: File does not contain valid model configurations.');
+        }
+
+        let importedCount = 0;
+        const existingIds = new Set(models.map(m => m.id));
+
+        for (const item of rawList) {
+          if (!item.name || !item.endpoint || !item.provider) continue;
+
+          let newId = item.id;
+          if (!newId || existingIds.has(newId)) {
+            newId = `model_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          }
+          existingIds.add(newId);
+
+          const config: ModelConfig = {
+            id: newId,
+            name: item.name,
+            provider: item.provider || 'openai',
+            endpoint: item.endpoint,
+            apiKey: item.apiKey || undefined,
+            model: item.model || '',
+            maxTokens: typeof item.maxTokens === 'number' ? item.maxTokens : 4096,
+            temperature: typeof item.temperature === 'number' ? item.temperature : 0.7,
+            isDefault: false,
+            disableTools: !!item.disableTools,
+            useMaxTokens: item.useMaxTokens,
+            apiStyle: item.apiStyle,
+            tokenParam: item.tokenParam,
+            contextWindow: item.contextWindow,
+            contextStrategy: item.contextStrategy || 'cache_max',
+            topP: item.topP,
+            supportsTemperature: item.supportsTemperature,
+            reasoningMode: item.reasoningMode,
+            strictAlternation: item.strictAlternation,
+            authStyle: item.authStyle,
+            skillCatalogMode: item.skillCatalogMode,
+            toolResultMaxChars: item.toolResultMaxChars,
+          };
+
+          onAddModel(config);
+          importedCount++;
+        }
+
+        if (importedCount === 0) {
+          throw new Error('No valid model configurations found in the file.');
+        }
+
+        setStatusMsg({ text: `✓ Successfully imported ${importedCount} model route(s)!`, type: 'success' });
+      } catch (err: any) {
+        setStatusMsg({ text: `Import failed: ${err.message}`, type: 'error' });
+      } finally {
+        if (e.target) e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  }, [models, onAddModel]);
 
   const setFormField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -406,12 +528,66 @@ export function ModelConfigPanel({
       {/* ── Model List View ──────────────────────────────────────── */}
       {!isEditing && !showPresets && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Model Routes</h3>
-            <button className="btn-primary" onClick={handleAddNew} id="btn-add-model-open">
-              + Add Model
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileImport}
+                accept=".json"
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleExportAll}
+                style={{ fontSize: '0.8rem', padding: '4px 10px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                title="Export all model routes to a JSON file"
+              >
+                📤 Export
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={handleImportClick}
+                style={{ fontSize: '0.8rem', padding: '4px 10px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                title="Import model routes from a JSON file"
+              >
+                📥 Import
+              </button>
+              <button className="btn-primary" onClick={handleAddNew} id="btn-add-model-open">
+                + Add Model
+              </button>
+            </div>
           </div>
+
+          {statusMsg && (
+            <div
+              style={{
+                marginBottom: '12px',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                background: statusMsg.type === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                color: statusMsg.type === 'success' ? 'var(--color-success, #10b981)' : 'var(--color-error, #ef4444)',
+                border: `1px solid ${statusMsg.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>{statusMsg.text}</span>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ padding: '2px 6px', fontSize: '0.75rem', marginLeft: '8px' }}
+                onClick={() => setStatusMsg(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           <div className="model-list" id="model-config-list">
             {models.map(m => (
@@ -435,6 +611,9 @@ export function ModelConfigPanel({
                   </span>
                 </div>
                 <div className="model-item-actions" onClick={e => e.stopPropagation()}>
+                  <button className="btn-ghost" onClick={() => handleExportSingle(m)} style={{ padding: '4px 8px' }} title="Export this model config">
+                    Export
+                  </button>
                   <button className="btn-ghost" onClick={() => handleEdit(m)} style={{ padding: '4px 8px' }}>
                     Edit
                   </button>
