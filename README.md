@@ -179,14 +179,40 @@ docker compose up --build
 ```
 
 ### 8. Cloudflare Pages Deployment
-OpenChat supports frontend hosting on Cloudflare Pages with separated Node.js backend:
-- **Frontend**: Deploy `dist/` to Cloudflare Pages (Build command: `npm run build`, Output: `dist`, `NODE_VERSION=22`).
-- **Backend**: Host `npm run dev:server` on a VPS / Docker container.
-- **Proxy**: Configure `public/_redirects` to proxy `/api/*` and `/ws` requests to your backend host:
-  ```text
-  /api/*  https://api.yourdomain.com/api/:splat  200
-  /ws     wss://api.yourdomain.com/ws           200
-  ```
+
+OpenChat supports hosting the frontend on **Cloudflare Pages** (global static CDN) paired with a separated Node.js backend server.
+
+#### Architecture Overview
+- **Frontend**: Vite + React SPA deployed to Cloudflare Pages for fast, zero-cost global delivery.
+- **Backend**: Node.js Hono server (`npm run dev:server` or Docker) running on a VPS / Cloud host, providing workspace file APIs, shell execution, and WebSocket streaming.
+- **Proxy Layer**: Uses Cloudflare Pages `public/_redirects` to proxy `/api/*` and `/ws` to your backend host, eliminating CORS issues and HTTP/HTTPS mixed-content warnings.
+
+#### Step 1: Deploy the Backend Server (VPS / Cloud / Docker)
+1. Clone the project and install dependencies on your server:
+   ```bash
+   npm install
+   npm run dev:server
+   ```
+2. In `server/src/index.ts`, ensure your Pages domain (e.g. `https://<your-app>.pages.dev`) is allowed in `cors`.
+3. Set up an Nginx / Caddy reverse proxy with SSL (`https://`) and WebSocket (`wss://`) pointing to port `3001`.
+
+#### Step 2: Configure Frontend Proxy (`public/_redirects`)
+Edit `public/_redirects` in your project root to point to your deployed backend domain:
+```text
+/api/*  https://api.yourdomain.com/api/:splat  200
+/ws     wss://api.yourdomain.com/ws           200
+```
+
+#### Step 3: Deploy Frontend on Cloudflare Pages
+1. In Cloudflare Dashboard → **Workers & Pages** → **Create Application** → **Pages** → Connect Git Repository.
+2. Configure build settings:
+   - **Framework Preset**: `Vite`
+   - **Build Command**: `npm run build`
+   - **Build Output Directory**: `dist`
+   - **Environment Variable**: `NODE_VERSION = 22`
+3. Click **Save and Deploy**.
+
+*(For frontend-only static usage without server file/shell tools, you can deploy directly and configure LLM API keys in browser Settings).*
 
 ---
 
