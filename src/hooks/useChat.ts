@@ -667,6 +667,109 @@ export function useChat(opts: {
         return sent;
       };
 
+      const runViaBrowserDirect = async (): Promise<boolean> => {
+        const req = opts.modelRouterRef.current.buildRequest(
+          opts.activeModelId,
+          injectedMessages,
+          true,
+        );
+        if (!req) return false;
+
+        setPhase('connecting', 'Connecting to API…');
+        try {
+          const response = await fetch(req.url, {
+            ...req.init,
+            signal: abortController.signal,
+          });
+
+          if (!response.ok) {
+            let errText = '';
+            try {
+              const errJson = await response.json();
+              errText = errJson.error?.message || errJson.message || JSON.stringify(errJson);
+            } catch {
+              errText = await response.text();
+            }
+            accumulatedContent = `⚠️ **API Error (${response.status})**: ${errText || response.statusText}`;
+            finishStream({ error: true });
+            return true;
+          }
+
+          if (!response.body) {
+            accumulatedContent = '⚠️ **API Error**: No response body received from endpoint.';
+            finishStream({ error: true });
+            return true;
+          }
+
+          setPhase('streaming', 'Generating reply…');
+          phaseStreamingSet = true;
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(':')) continue;
+
+              if (trimmed.startsWith('data: ')) {
+                const dataStr = trimmed.slice(6).trim();
+                if (dataStr === '[DONE]') break;
+
+                try {
+                  const data = JSON.parse(dataStr);
+                  const delta = data.choices?.[0]?.delta;
+                  if (delta) {
+                    const reasoning = delta.reasoning_content || delta.reasoning;
+                    if (reasoning) {
+                      accumulatedThinking += reasoning;
+                      if (opts.enableThinking) setPhase('thinking', 'Reasoning…');
+                      batcher.schedule();
+                    }
+                    if (delta.content) {
+                      accumulatedContent += delta.content;
+                      batcher.schedule();
+                    }
+                  }
+                  if (data.response) {
+                    accumulatedContent += data.response;
+                    batcher.schedule();
+                  }
+                } catch {
+                  // ignore incomplete chunk json parse
+                }
+              } else if (trimmed.startsWith('{')) {
+                try {
+                  const data = JSON.parse(trimmed);
+                  if (data.response) {
+                    accumulatedContent += data.response;
+                    batcher.schedule();
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          }
+
+          finishStream();
+          return true;
+        } catch (err: any) {
+          if (err.name === 'AbortError') return true;
+          accumulatedContent = `⚠️ **Connection Error**: ${err.message || 'Failed to connect to API endpoint'}.\n\nPlease check your API Key and Network settings in Settings (${navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'}+,).`;
+          finishStream({ error: true });
+          return true;
+        }
+      };
+
       // Prefer connected backend
       if (opts.backendAvailableRef.current && backendClient.isConnected()) {
         setPhase('connecting', 'Connected — starting agent…');
@@ -676,7 +779,6 @@ export function useChat(opts: {
       }
 
       if (canMakeRealRequest(activeConfig as ModelConfig | undefined)) {
-        setPhase('connecting', 'Connecting to backend…');
         if (!opts.backendAvailableRef.current || !backendClient.isConnected()) {
           const reconnected = await backendClient.connect();
           if (reconnected) opts.markAvailable();
@@ -684,9 +786,8 @@ export function useChat(opts: {
         if (opts.backendAvailableRef.current && backendClient.isConnected()) {
           if (await runViaBackend()) return;
         }
-        accumulatedContent =
-          `⚠️ **Backend not running**.\n\nStart with \`npm run dev:all\` (or \`npm run dev:server\`) so the agent can call tools and models.`;
-        finishStream({ error: true });
+        // Pure static mode (Cloudflare Pages): stream directly from browser to LLM API
+        if (await runViaBrowserDirect()) return;
       } else {
         setPhase('streaming', 'Demo mode…');
         simulateStream(injectedMessages, handleChunk, () => finishStream(), {
