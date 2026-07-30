@@ -206,7 +206,7 @@ Edit `public/_redirects` in your project root to point to your deployed backend 
 #### Step 3: Deploy Frontend on Cloudflare Pages
 1. In Cloudflare Dashboard → **Workers & Pages** → **Create Application** → **Pages** → Connect Git Repository.
 2. Configure build settings:
-   - **Framework Preset**: `Vite`
+   - **Framework Preset**: `React (Vite)` or `None`
    - **Build Command**: `npm run build`
    - **Build Output Directory**: `dist`
    - **Environment Variable**: `NODE_VERSION = 22`
