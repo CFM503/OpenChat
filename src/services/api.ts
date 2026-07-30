@@ -87,6 +87,12 @@ interface StreamCallbacks {
 const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY = 1000;  // 1 second
 
+function isJsonResponse(resp: Response): boolean {
+  if (!resp.ok) return false;
+  const ct = resp.headers.get('content-type') || '';
+  return ct.includes('application/json');
+}
+
 class BackendClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -108,20 +114,20 @@ class BackendClient {
       const resp = await fetch(apiUrl('/api/health'), {
         signal: AbortSignal.timeout(2000),
       });
-      return resp.ok;
+      if (isJsonResponse(resp)) return true;
     } catch {
       // Fallback direct port when Vite proxy not ready
       try {
         const resp = await fetch('http://localhost:3001/api/health', {
           signal: AbortSignal.timeout(1500),
         });
-        if (resp.ok) {
+        if (isJsonResponse(resp)) {
           this.url = 'ws://localhost:3001/ws';
           return true;
         }
       } catch { /* ignore */ }
-      return false;
     }
+    return false;
   }
 
   /**
@@ -132,7 +138,7 @@ class BackendClient {
       const resp = await fetch(apiUrl('/api/health'), {
         signal: AbortSignal.timeout(2000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch {
       // Ignore
     }
@@ -529,7 +535,7 @@ class BackendClient {
       const resp = await fetch('/api/sessions', {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return [];
   }
@@ -542,7 +548,7 @@ class BackendClient {
         body: JSON.stringify({ title }),
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) return resp.json();
+      if (isJsonResponse(resp)) return resp.json();
     } catch { /* ignore */ }
     return null;
   }

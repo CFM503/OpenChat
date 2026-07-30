@@ -77,7 +77,8 @@ export function useConfig() {
     (async () => {
       try {
         const response = await fetch(apiUrl('/api/config'));
-        if (response.ok) {
+        const ct = response.headers.get('content-type') || '';
+        if (response.ok && ct.includes('application/json')) {
           const config = await response.json();
           if (config && Object.keys(config).length > 0) {
             if (config.models) {
