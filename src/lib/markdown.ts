@@ -96,7 +96,7 @@ const markedFull = new Marked({
   gfm: true,
   breaks: false,
   renderer: {
-    code(this: ParserCtx, token: { text?: string; lang?: string; raw?: string }) {
+    code(this: any, token: { text?: string; lang?: string; raw?: string }) {
       const raw = safePlainText(token?.text ?? token?.raw ?? '');
       let language = (token?.lang || 'text').trim() || 'text';
       // strip trailing extras: ```js {.class}
@@ -113,7 +113,7 @@ const markedFull = new Marked({
       );
     },
 
-    link(this: ParserCtx, token: { href?: string; title?: string; text?: string; tokens?: unknown[] }) {
+    link(this: any, token: any) {
       const href = typeof token?.href === 'string' ? token.href : '#';
       const body = parseInline(this, token?.tokens, token?.text);
       const title =
@@ -123,7 +123,7 @@ const markedFull = new Marked({
       return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer">${body}</a>`;
     },
 
-    image(this: ParserCtx, token: { href?: string; title?: string; text?: string }) {
+    image(this: any, token: any) {
       const href = typeof token?.href === 'string' ? token.href : '';
       const alt = escapeHtml(safePlainText(token?.text));
       const title =
@@ -138,7 +138,7 @@ const markedFull = new Marked({
      * Marked v9+ table tokens: header/rows are arrays of cell objects with .tokens
      * NEVER interpolate token.header/token.body as strings.
      */
-    table(this: ParserCtx, token: any) {
+    table(this: any, token: any) {
       const parseCell = (cell: any) => parseInline(this, cell?.tokens, cell?.text ?? cell?.raw);
 
       const headerCells = Array.isArray(token?.header) ? token.header : [];

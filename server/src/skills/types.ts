@@ -27,6 +27,7 @@ export interface SkillFrontmatter {
   shell?: string;
   category?: string;
   shortcut?: string;  // OpenChat legacy
+  tools?: string | string[];
 }
 
 export interface Skill {

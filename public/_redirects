@@ -1,0 +1,2 @@
+/api/*  https://api.yourdomain.com/api/:splat  200
+/ws     wss://api.yourdomain.com/ws           200

@@ -178,6 +178,16 @@ docker compose up --build
 # Backend + tools on :3001, workspace mounted at /workspace
 ```
 
+### 8. Cloudflare Pages Deployment
+OpenChat supports frontend hosting on Cloudflare Pages with separated Node.js backend:
+- **Frontend**: Deploy `dist/` to Cloudflare Pages (Build command: `npm run build`, Output: `dist`, `NODE_VERSION=22`).
+- **Backend**: Host `npm run dev:server` on a VPS / Docker container.
+- **Proxy**: Configure `public/_redirects` to proxy `/api/*` and `/ws` requests to your backend host:
+  ```text
+  /api/*  https://api.yourdomain.com/api/:splat  200
+  /ws     wss://api.yourdomain.com/ws           200
+  ```
+
 ---
 
 ## ⌨️ Keyboard Shortcuts

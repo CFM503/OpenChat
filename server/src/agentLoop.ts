@@ -1253,7 +1253,7 @@ export class AgentLoop {
           const result = await compressConversation(
             this.providers,
             sumModel,
-            convMessages,
+            convMessages as any,
           );
           if (result.summary) {
             runSummary = result.summary;

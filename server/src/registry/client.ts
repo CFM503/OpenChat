@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { ProxyAgent } from 'undici';
+import type { RegistryPackage, RegistryResponse } from './types.js';
 
 export class RegistryClient {
   private registries: string[];

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.6.2] - 2026-07-30
+
+### Added
+- **Cloudflare Pages Deployment Support**: Added `public/_redirects` configuration file to proxy `/api/*` and `/ws` requests to external Node.js backend.
+- **Deployment Documentation**: Updated `README.md` with step-by-step guides for deploying OpenChat frontend to Cloudflare Pages alongside separated Node.js backend server.
+
+---
+
 ## [2.6.1] - 2026-07-19
 
 ### Changed

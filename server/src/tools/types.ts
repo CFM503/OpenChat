@@ -29,7 +29,7 @@ export interface ToolContext {
 }
 
 /** OpenAI function-calling format tool definition */
-interface FunctionToolDef {
+export interface FunctionToolDef {
   type: 'function';
   function: {
     name: string;
